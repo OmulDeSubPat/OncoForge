@@ -1,2 +1,3 @@
 # OncoForge
-Proiectul dezvoltă o platformă AI multi-agent pentru generarea și optimizarea de molecule candidate anticancer ce vizează receptorul EGFR. Sistemul folosește reinforcement learning cu recompense verificabile pentru a evalua potența estimată, toxicitatea și validitatea chimică, prioritizând candidați moleculari promițători pentru cercetare viitoare.
+
+This project develops a **multi-agent AI platform** for generating and optimizing potential **anticancer drug candidates targeting the EGFR receptor**. The system uses **reinforcement learning with verifiable rewards** to evaluate estimated potency, toxicity, and chemical validity, prioritizing the most promising molecular candidates for further research and investigation.
