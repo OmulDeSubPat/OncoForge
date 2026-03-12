@@ -82,7 +82,6 @@ def score_molecule(smiles: str, models) -> dict:
     if qed is None:
         qed = 0.0
 
-    # scor nou
     final_score = (
         pred_mean
         + 0.5 * qed

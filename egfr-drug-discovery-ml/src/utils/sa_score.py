@@ -6,11 +6,6 @@ from rdkit.Chem import Descriptors, rdMolDescriptors
 
 
 def simple_sa_score(smiles: str) -> Optional[float]:
-    """
-    Proxy simplu pentru synthetic accessibility.
-    Scor mic = mai ușor de sintetizat
-    Scor mare = mai greu
-    """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None

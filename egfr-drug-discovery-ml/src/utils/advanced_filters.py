@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 from typing import Optional
-
 from rdkit import Chem
-from rdkit.Chem import RDConfig
 from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
-import os
 
 
 def build_pains_catalog() -> FilterCatalog:
