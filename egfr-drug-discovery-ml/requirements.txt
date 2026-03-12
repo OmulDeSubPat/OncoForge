@@ -1,0 +1,8 @@
+pandas
+numpy
+tqdm
+chembl-webresource-client
+rdkit
+scikit-learn
+joblib
+matplotlib

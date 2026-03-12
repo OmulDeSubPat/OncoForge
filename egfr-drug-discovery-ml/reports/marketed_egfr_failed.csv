@@ -1,0 +1,2 @@
+name,error
+Lazertinib,ValueError('Invalid SMILES: CC(C)(C#N)C(=O)N[C@H]1CCCN(c2ncnc3cc(OCCN4CCOCC4)c(OC)c23)C1')

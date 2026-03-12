@@ -1,0 +1,8 @@
+name,class,smiles
+Erlotinib,approved_tki,COc1cc2ncnc(Nc3ccc(Cl)c(C#C)c3)c2cc1OCCCN1CCOCC1
+Gefitinib,approved_tki,COc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cc1OCCCN1CCN(C)CC1
+Afatinib,approved_tki,CN(C)CCOC1=CC2=C(NC3=CC=CC=C3F)N=CN=C2C=C1
+Dacomitinib,approved_tki,COc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cc1OCCCN1CCOCC1
+Osimertinib,approved_tki,COc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cc1NC(=O)C=C
+Lazertinib,approved_tki,CC(C)(C#N)C(=O)N[C@H]1CCCN(c2ncnc3cc(OCCN4CCOCC4)c(OC)c23)C1
+Sunvozertinib,approved_tki,C=CC(=O)Nc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cn1
