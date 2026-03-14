@@ -1,0 +1,14 @@
+{
+  "ranked_molecules": 1000,
+  "audit_pass_rate": 0.244,
+  "audit_review_rate": 0.608,
+  "audit_fail_rate": 0.148,
+  "median_reward_hacking_risk": 0.2,
+  "median_agent_disagreement": 0.6725702439406028,
+  "mean_audit_demotion": 49.017,
+  "status_counts": {
+    "review": 608,
+    "pass": 244,
+    "fail": 148
+  }
+}

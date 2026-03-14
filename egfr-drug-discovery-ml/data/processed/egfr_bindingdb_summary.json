@@ -1,0 +1,7 @@
+{
+  "archive": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\data\\raw\\bindingdb_articles_202603_tsv.zip",
+  "total_rows_scanned": 94219,
+  "target_matched_rows": 1263,
+  "interim_rows": 965,
+  "unique_molecules": 906
+}

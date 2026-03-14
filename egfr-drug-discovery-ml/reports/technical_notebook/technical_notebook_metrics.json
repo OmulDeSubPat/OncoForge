@@ -1,0 +1,18 @@
+{
+  "ranked_molecules": 10606,
+  "audit_pass_rate": 0.15670375259287195,
+  "audit_review_rate": 0.6273807278898736,
+  "audit_fail_rate": 0.21591551951725438,
+  "median_reward_hacking_risk": 0.2,
+  "median_agent_disagreement": 0.7263060152889012,
+  "mean_audit_demotion": 664.6265321516123,
+  "status_counts": {
+    "review": 6654,
+    "fail": 2290,
+    "pass": 1662
+  },
+  "model_random_rmse": 0.6601573323003216,
+  "model_scaffold_rmse": 0.7409472016209232,
+  "model_temporal_rmse": 1.1542734865279254,
+  "mean_structural_rescore": 0.6571814822074591
+}

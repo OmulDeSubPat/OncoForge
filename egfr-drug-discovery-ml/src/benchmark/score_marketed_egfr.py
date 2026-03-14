@@ -1,27 +1,19 @@
 from __future__ import annotations
 
-import joblib
 import pandas as pd
 
+from src.agents.multi_agent import add_multiobjective_ranking, build_default_scorer
 from src.config import PROJECT_ROOT
 from src.models.predict_and_score import score_molecule
 
 
 def main():
     in_path = PROJECT_ROOT / "data" / "processed" / "marketed_egfr_benchmark.csv"
-    model_path = PROJECT_ROOT / "models" / "qsar_rf_ensemble.pkl"
-
     if not in_path.exists():
         raise FileNotFoundError(f"Missing benchmark file: {in_path}")
 
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Missing model: {model_path}\n"
-            "Run: python -m src.models.train_qsar_rf_ensemble"
-        )
-
     df = pd.read_csv(in_path)
-    models = joblib.load(model_path)
+    scorer = build_default_scorer()
 
     if "smiles" not in df.columns:
         raise ValueError("Benchmark CSV must contain a 'smiles' column.")
@@ -39,19 +31,19 @@ def main():
             continue
 
         try:
-            scored = score_molecule(smi, models)
+            scored = score_molecule(smi, scorer=scorer)
             scored["name"] = name
             scored["class"] = klass
             rows.append(scored)
             print(f"[OK] Scored {name}")
-        except Exception as e:
-            failed.append((name, repr(e)))
-            print(f"[WARN] Skipping {name}: {repr(e)}")
+        except Exception as exc:
+            failed.append((name, repr(exc)))
+            print(f"[WARN] Skipping {name}: {repr(exc)}")
 
     if not rows:
         raise ValueError("No benchmark molecules were successfully scored.")
 
-    out = pd.DataFrame(rows).sort_values("final_score", ascending=False).reset_index(drop=True)
+    out = add_multiobjective_ranking(pd.DataFrame(rows), policy=scorer.policy)
 
     out_path = PROJECT_ROOT / "reports" / "marketed_egfr_scored.csv"
     out.to_csv(out_path, index=False)

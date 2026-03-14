@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 import pandas as pd
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
 
 from src.config import PROJECT_ROOT
-
-
-def fp(smiles: str, radius: int = 2, n_bits: int = 2048):
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    return AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
+from src.pipelines.artifact_utils import load_csv_artifact
+from src.utils.similarity import morgan_fp, tanimoto_similarity
 
 
 def main():
-    candidates_path = PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates.csv"
+    preferred_path = PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_structural_rescored.csv"
+    candidates_path = preferred_path if preferred_path.exists() else (PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates.csv")
     market_path = PROJECT_ROOT / "reports" / "marketed_egfr_scored.csv"
 
     if not candidates_path.exists():
@@ -30,18 +24,26 @@ def main():
             "Run: python -m src.benchmark.score_marketed_egfr"
         )
 
-    cand = pd.read_csv(candidates_path).copy()
-    market = pd.read_csv(market_path).copy()
+    cand = load_csv_artifact(
+        candidates_path,
+        required_columns=["smiles", "predicted_pIC50", "QED", "reward_hacking_risk", "agent_disagreement_score", "audit_status", "final_score"],
+        producer="python -m src.generation.iterative_ai_optimizer",
+    ).copy()
+    market = load_csv_artifact(
+        market_path,
+        required_columns=["name", "smiles", "predicted_pIC50", "final_score"],
+        producer="python -m src.benchmark.score_marketed_egfr",
+    ).copy()
 
     market_fps = []
     for _, row in market.iterrows():
-        mfp = fp(row["smiles"])
-        if mfp is not None:
-            market_fps.append((row["name"], row["smiles"], mfp))
+        fp = morgan_fp(smiles=row["smiles"])
+        if fp is not None:
+            market_fps.append((row["name"], row["smiles"], fp))
 
     rows = []
     for _, row in cand.iterrows():
-        cfp = fp(row["smiles"])
+        cfp = morgan_fp(smiles=row["smiles"])
         if cfp is None:
             continue
 
@@ -49,23 +51,32 @@ def main():
         best_smiles = None
         best_sim = -1.0
 
-        for m_name, m_smiles, mfp in market_fps:
-            sim = float(DataStructs.TanimotoSimilarity(cfp, mfp))
+        for market_name, market_smiles, market_fp in market_fps:
+            sim = tanimoto_similarity(cfp, market_fp)
             if sim > best_sim:
                 best_sim = sim
-                best_name = m_name
-                best_smiles = m_smiles
+                best_name = market_name
+                best_smiles = market_smiles
 
         out_row = row.to_dict()
         out_row["closest_market_drug"] = best_name
         out_row["closest_market_smiles"] = best_smiles
         out_row["max_market_similarity"] = best_sim
+        out_row["market_novelty_score"] = max(0.0, 1.0 - best_sim)
         rows.append(out_row)
 
-    out = pd.DataFrame(rows).sort_values(
-        ["final_score", "max_market_similarity"],
-        ascending=[False, True]
-    ).reset_index(drop=True)
+    out = pd.DataFrame(rows)
+    if "docking_rescore" in out.columns:
+        out["structural_priority_score"] = out["final_score"] + 0.75 * out["docking_rescore"]
+        out = out.sort_values(
+            ["structural_priority_score", "docking_rescore", "final_score", "max_market_similarity"],
+            ascending=[False, False, False, True],
+        ).reset_index(drop=True)
+    else:
+        out = out.sort_values(
+            ["final_score", "max_market_similarity"],
+            ascending=[False, True],
+        ).reset_index(drop=True)
 
     out_path = PROJECT_ROOT / "reports" / "candidates_vs_market.csv"
     out.to_csv(out_path, index=False)
@@ -77,7 +88,7 @@ def main():
                 "smiles",
                 "predicted_pIC50",
                 "QED",
-                "uncertainty",
+                "reward_hacking_risk",
                 "final_score",
                 "closest_market_drug",
                 "max_market_similarity",

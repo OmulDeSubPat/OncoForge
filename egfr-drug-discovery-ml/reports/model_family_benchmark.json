@@ -1,0 +1,91 @@
+{
+  "dataset_name": "multisource",
+  "dataset_path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\data\\processed\\egfr_multisource_ic50_clean.csv",
+  "descriptor_names": [
+    "mol_wt",
+    "logp",
+    "tpsa",
+    "hbd",
+    "hba",
+    "rotatable_bonds",
+    "ring_count",
+    "aromatic_rings",
+    "fraction_csp3",
+    "heavy_atoms",
+    "hetero_atoms",
+    "mol_mr",
+    "valence_electrons"
+  ],
+  "results": [
+    {
+      "model_family": "et_ecfp",
+      "feature_set": "ecfp",
+      "mae_random": 0.49770225963052656,
+      "mae_scaffold": 0.5587280779438081,
+      "rmse_random": 0.675517017186077,
+      "rmse_scaffold": 0.7402348479031683,
+      "r2_random": 0.735072585229283,
+      "r2_scaffold": 0.6839830056440502
+    },
+    {
+      "model_family": "hgb_ecfp",
+      "feature_set": "ecfp",
+      "mae_random": 0.5012681224601424,
+      "mae_scaffold": 0.5822368341250027,
+      "rmse_random": 0.6711151630106537,
+      "rmse_scaffold": 0.7690359063998629,
+      "r2_random": 0.7385140153324634,
+      "r2_scaffold": 0.6589134295083823
+    },
+    {
+      "model_family": "rf_hybrid",
+      "feature_set": "hybrid",
+      "mae_random": 0.5142823216915681,
+      "mae_scaffold": 0.5884322998240837,
+      "rmse_random": 0.6867002901154066,
+      "rmse_scaffold": 0.7715866790722582,
+      "r2_random": 0.7262281596597104,
+      "r2_scaffold": 0.6566470146894821
+    },
+    {
+      "model_family": "mlp_hybrid",
+      "feature_set": "hybrid",
+      "mae_random": 0.6367525736018461,
+      "mae_scaffold": 0.7576721478392778,
+      "rmse_random": 0.8545119637215307,
+      "rmse_scaffold": 0.983595523440909,
+      "r2_random": 0.5760734579209439,
+      "r2_scaffold": 0.44203819274878187
+    },
+    {
+      "model_family": "rf_descriptors",
+      "feature_set": "descriptors",
+      "mae_random": 0.7203432330659719,
+      "mae_scaffold": 0.7997547342695762,
+      "rmse_random": 0.933786062481129,
+      "rmse_scaffold": 1.0331991454561211,
+      "r2_random": 0.4937685896402506,
+      "r2_scaffold": 0.3843420925276564
+    },
+    {
+      "model_family": "knn_descriptors",
+      "feature_set": "descriptors",
+      "mae_random": 0.7081903153244266,
+      "mae_scaffold": 0.8262489943954748,
+      "rmse_random": 0.9593630247265503,
+      "rmse_scaffold": 1.097725721321933,
+      "r2_random": 0.46565682601589975,
+      "r2_scaffold": 0.3050411877546274
+    },
+    {
+      "model_family": "ridge_descriptors",
+      "feature_set": "descriptors",
+      "mae_random": 0.9607850271162423,
+      "mae_scaffold": 0.9423147410564113,
+      "rmse_random": 1.187506016348936,
+      "rmse_scaffold": 1.1751783965018612,
+      "r2_random": 0.18129781242035348,
+      "r2_scaffold": 0.20351246483742635
+    }
+  ]
+}

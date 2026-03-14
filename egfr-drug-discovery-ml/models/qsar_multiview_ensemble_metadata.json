@@ -1,0 +1,73 @@
+{
+  "dataset_name": "multisource",
+  "dataset_path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\data\\processed\\egfr_multisource_ic50_clean.csv",
+  "descriptor_names": [
+    "mol_wt",
+    "logp",
+    "tpsa",
+    "hbd",
+    "hba",
+    "rotatable_bonds",
+    "ring_count",
+    "aromatic_rings",
+    "fraction_csp3",
+    "heavy_atoms",
+    "hetero_atoms",
+    "mol_mr",
+    "valence_electrons"
+  ],
+  "models": [
+    {
+      "name": "et_ecfp",
+      "feature_set": "ecfp",
+      "model_class": "ExtraTreesRegressor"
+    },
+    {
+      "name": "hgb_ecfp",
+      "feature_set": "ecfp",
+      "model_class": "HistGradientBoostingRegressor"
+    },
+    {
+      "name": "rf_hybrid",
+      "feature_set": "hybrid",
+      "model_class": "RandomForestRegressor"
+    }
+  ],
+  "recommended_uncertainty_scale": 4.0,
+  "random_calibration": {
+    "target_one_sigma_coverage": 0.6826894921370859,
+    "raw_one_sigma_coverage": 0.17247879359095195,
+    "raw_two_sigma_coverage": 0.3176248821866164,
+    "recommended_uncertainty_scale": 4.0,
+    "calibrated_one_sigma_coverage": 0.5508953817153629,
+    "calibrated_two_sigma_coverage": 0.7832233741753063,
+    "mean_abs_error": 0.4913685850164479,
+    "mean_predicted_std": 0.12572683903795717,
+    "mean_calibrated_std": 0.5029073561518287,
+    "mean_normalized_abs_error": 1.7477200043339902
+  },
+  "scaffold_calibration": {
+    "target_one_sigma_coverage": 0.6826894921370859,
+    "raw_one_sigma_coverage": 0.16454502593116455,
+    "raw_two_sigma_coverage": 0.30787364450730786,
+    "recommended_uncertainty_scale": 4.0,
+    "calibrated_one_sigma_coverage": 0.5256954266855257,
+    "calibrated_two_sigma_coverage": 0.7708628005657708,
+    "mean_abs_error": 0.5603218055938517,
+    "mean_predicted_std": 0.13975605224893767,
+    "mean_calibrated_std": 0.5590242089957507,
+    "mean_normalized_abs_error": 1.7206312090708669
+  },
+  "temporal_calibration": {
+    "target_one_sigma_coverage": 0.6826894921370859,
+    "raw_one_sigma_coverage": 0.1853932584269663,
+    "raw_two_sigma_coverage": 0.3258426966292135,
+    "recommended_uncertainty_scale": 4.0,
+    "calibrated_one_sigma_coverage": 0.5955056179775281,
+    "calibrated_two_sigma_coverage": 0.8314606741573034,
+    "mean_abs_error": 0.9102218680635926,
+    "mean_predicted_std": 0.2348563101828142,
+    "mean_calibrated_std": 0.9394252407312568,
+    "mean_normalized_abs_error": 1.1977521327208585
+  }
+}

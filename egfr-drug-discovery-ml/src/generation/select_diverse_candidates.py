@@ -1,64 +1,62 @@
 from __future__ import annotations
 
 import pandas as pd
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
 
 from src.config import PROJECT_ROOT
-
-
-def fingerprint(smiles: str, radius: int = 2, n_bits: int = 2048):
-    mol = Chem.MolFromSmiles(smiles)
-    if mol is None:
-        return None
-    return AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
-
-
-def tanimoto(fp1, fp2) -> float:
-    return float(DataStructs.TanimotoSimilarity(fp1, fp2))
+from src.pipelines.artifact_utils import load_csv_artifact
+from src.utils.similarity import morgan_fp, tanimoto_similarity
 
 
 def main():
-    in_path = PROJECT_ROOT / "reports" / "generated_analogs_ranked.csv"
+    preferred_path = PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_rescored.csv"
+    in_path = preferred_path if preferred_path.exists() else (PROJECT_ROOT / "reports" / "generated_analogs_ranked.csv")
     if not in_path.exists():
         raise FileNotFoundError(
             f"Missing file: {in_path}\n"
             "Run: python -m src.generation.generate_and_rank_analogs"
         )
 
-    df = pd.read_csv(in_path)
-
-    # basic quality filters
+    df = load_csv_artifact(
+        in_path,
+        required_columns=["smiles", "predicted_pIC50", "QED", "reward_hacking_risk", "agent_disagreement_score", "audit_status", "veto", "final_score"],
+        producer="python -m src.generation.generate_and_rank_analogs",
+    )
     df = df[
-        (df["predicted_pIC50"] >= 8.5) &
-        (df["QED"] >= 0.45) &
-        (df["uncertainty"] <= 0.05) &
-        (df["penalty"] <= 0.3)
+        (df["predicted_pIC50"] >= 8.3)
+        & (df["QED"] >= 0.35)
+        & (df["reward_hacking_risk"] <= 0.35)
+        & (df["agent_disagreement_score"] <= 0.50)
+        & (df["audit_status"] == "pass")
+        & (df["veto"] == False)
     ].copy()
 
-    df = df.sort_values("final_score", ascending=False).reset_index(drop=True)
+    if "docking_rescore" in df.columns:
+        df = df[df["docking_rescore"] >= 0.45].copy()
+        sort_cols = ["structural_priority_score", "docking_rescore", "final_score"]
+    else:
+        sort_cols = ["final_score"]
+    df = df.sort_values(sort_cols, ascending=[False] * len(sort_cols)).reset_index(drop=True)
 
     selected = []
     selected_fps = []
 
-    similarity_threshold = 0.75
+    similarity_threshold = 0.72
     max_candidates = 20
 
     for _, row in df.iterrows():
-        smi = row["smiles"]
-        fp = fingerprint(smi)
+        fp = morgan_fp(smiles=row["smiles"])
         if fp is None:
             continue
 
-        too_similar = False
-        for prev_fp in selected_fps:
-            if tanimoto(fp, prev_fp) >= similarity_threshold:
-                too_similar = True
-                break
+        too_similar = any(
+            tanimoto_similarity(fp, prev_fp) >= similarity_threshold
+            for prev_fp in selected_fps
+        )
+        if too_similar:
+            continue
 
-        if not too_similar:
-            selected.append(row.to_dict())
-            selected_fps.append(fp)
+        selected.append(row.to_dict())
+        selected_fps.append(fp)
 
         if len(selected) >= max_candidates:
             break

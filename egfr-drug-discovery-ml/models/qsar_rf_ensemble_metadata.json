@@ -1,0 +1,111 @@
+{
+  "selected_models": [
+    {
+      "name": "rf_sqrt_bootstrap",
+      "family": "rf",
+      "params": {
+        "n_estimators": 400,
+        "random_state": 11,
+        "n_jobs": -1,
+        "max_features": "sqrt",
+        "bootstrap": true,
+        "max_samples": 0.85
+      }
+    },
+    {
+      "name": "et_sqrt_dense",
+      "family": "et",
+      "params": {
+        "n_estimators": 700,
+        "random_state": 17,
+        "n_jobs": -1,
+        "max_features": "sqrt"
+      }
+    },
+    {
+      "name": "et_regularized_leaf2",
+      "family": "et",
+      "params": {
+        "n_estimators": 800,
+        "random_state": 41,
+        "n_jobs": -1,
+        "max_features": 0.18,
+        "min_samples_leaf": 2
+      }
+    },
+    {
+      "name": "hgb_compact",
+      "family": "hgb",
+      "params": {
+        "learning_rate": 0.05,
+        "max_iter": 500,
+        "max_leaf_nodes": 63,
+        "min_samples_leaf": 20,
+        "l2_regularization": 0.05,
+        "early_stopping": false,
+        "random_state": 42
+      }
+    }
+  ],
+  "all_candidate_models": [
+    {
+      "name": "rf_sqrt_bootstrap",
+      "family": "rf",
+      "params": {
+        "n_estimators": 400,
+        "random_state": 11,
+        "n_jobs": -1,
+        "max_features": "sqrt",
+        "bootstrap": true,
+        "max_samples": 0.85
+      }
+    },
+    {
+      "name": "rf_regularized_leaf2",
+      "family": "rf",
+      "params": {
+        "n_estimators": 500,
+        "random_state": 29,
+        "n_jobs": -1,
+        "max_features": 0.2,
+        "bootstrap": true,
+        "max_samples": 0.85,
+        "min_samples_leaf": 2
+      }
+    },
+    {
+      "name": "et_sqrt_dense",
+      "family": "et",
+      "params": {
+        "n_estimators": 700,
+        "random_state": 17,
+        "n_jobs": -1,
+        "max_features": "sqrt"
+      }
+    },
+    {
+      "name": "et_regularized_leaf2",
+      "family": "et",
+      "params": {
+        "n_estimators": 800,
+        "random_state": 41,
+        "n_jobs": -1,
+        "max_features": 0.18,
+        "min_samples_leaf": 2
+      }
+    },
+    {
+      "name": "hgb_compact",
+      "family": "hgb",
+      "params": {
+        "learning_rate": 0.05,
+        "max_iter": 500,
+        "max_leaf_nodes": 63,
+        "min_samples_leaf": 20,
+        "l2_regularization": 0.05,
+        "early_stopping": false,
+        "random_state": 42
+      }
+    }
+  ]
+}

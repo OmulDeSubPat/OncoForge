@@ -77,13 +77,26 @@ def clean_raw_to_processed(raw_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     interim_df = df.reset_index(drop=True)
 
-    processed_df = interim_df.groupby("smiles_canonical", as_index=False).agg(
-        ic50_nm_median=("ic50_nm", "median"),
-        pIC50_median=("pIC50", "median"),
-        n_measurements=("pIC50", "size"),
-        year_min=("year", "min") if "year" in interim_df.columns else ("pIC50", "min"),
-        year_max=("year", "max") if "year" in interim_df.columns else ("pIC50", "max"),
-    ).sort_values("pIC50_median", ascending=False).reset_index(drop=True)
+    aggregation = {
+        "ic50_nm_median": ("ic50_nm", "median"),
+        "pIC50_median": ("pIC50", "median"),
+        "n_measurements": ("pIC50", "size"),
+    }
+
+    if "year" in interim_df.columns:
+        aggregation["year_min"] = ("year", "min")
+        aggregation["year_max"] = ("year", "max")
+
+    processed_df = (
+        interim_df.groupby("smiles_canonical", as_index=False)
+        .agg(**aggregation)
+        .sort_values("pIC50_median", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    if "year_min" not in processed_df.columns:
+        processed_df["year_min"] = np.nan
+        processed_df["year_max"] = np.nan
 
     return interim_df, processed_df
 

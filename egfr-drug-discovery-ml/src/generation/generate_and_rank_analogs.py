@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import joblib
 import pandas as pd
 from tqdm import tqdm
 
+from src.agents.multi_agent import build_default_scorer, score_smiles_list
 from src.config import PROJECT_ROOT
-from src.models.predict_and_score import score_molecule
 from src.generation.analog_generator import generate_string_mutations
+from src.pipelines.artifact_utils import load_csv_artifact
+from src.utils.chem import canonicalize_smiles
 
 
 def main():
@@ -17,51 +18,43 @@ def main():
             "Run: python -m src.models.rank_dataset"
         )
 
-    model_path = PROJECT_ROOT / "models" / "qsar_rf_ensemble.pkl"
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Missing ensemble model: {model_path}\n"
-            "Run: python -m src.models.train_qsar_rf_ensemble"
-        )
+    ranked_df = load_csv_artifact(
+        ranked_path,
+        required_columns=["smiles", "veto", "audit_pass", "reward_hacking_risk", "agent_disagreement_score", "applicability_score", "final_score"],
+        producer="python -m src.models.rank_dataset",
+    )
+    scorer = build_default_scorer()
 
-    models = joblib.load(model_path)
-    ranked_df = pd.read_csv(ranked_path)
+    seed_df = ranked_df[
+        (ranked_df["veto"] == False)
+        & (ranked_df["audit_pass"] == True)
+        & (ranked_df["reward_hacking_risk"] <= 0.35)
+        & (ranked_df["agent_disagreement_score"] <= 0.45)
+        & (ranked_df["applicability_score"] >= 0.30)
+    ].head(24)
+    seed_smiles = seed_df["smiles"].tolist()
 
-    # luăm primele 20 molecule ca seeds
-    top_n = 20
-    seed_smiles = ranked_df["smiles"].head(top_n).tolist()
-
-    generated_rows = []
+    generated_pairs = []
     seen = set()
 
-    print(f"[INFO] Using top {top_n} seed molecules")
+    print(f"[INFO] Using {len(seed_smiles)} high-confidence seed molecules")
     for seed in tqdm(seed_smiles, desc="Generating analogs"):
-        analogs = generate_string_mutations(seed, max_variants=50)
+        analogs = generate_string_mutations(seed, max_variants=60)
 
         for analog in analogs:
-            if analog in seen:
+            canonical_smiles = canonicalize_smiles(analog)
+            if not canonical_smiles or canonical_smiles in seen:
                 continue
-            seen.add(analog)
+            seen.add(canonical_smiles)
+            generated_pairs.append({"smiles": canonical_smiles, "parent_seed": seed})
 
-            try:
-                scored = score_molecule(analog, models)
-                scored["parent_seed"] = seed
-                generated_rows.append(scored)
-            except Exception:
-                # ignoră analogii care pică pe parsing/scoring
-                continue
-
-    if not generated_rows:
+    if not generated_pairs:
         print("[WARN] No valid analogs generated.")
         return
 
-    out = pd.DataFrame(generated_rows)
-
-    # scoatem duplicate după smiles
-    out = out.drop_duplicates(subset=["smiles"]).copy()
-
-    # sortare după scor
-    out = out.sort_values("final_score", ascending=False).reset_index(drop=True)
+    generated_df = pd.DataFrame(generated_pairs).drop_duplicates(subset=["smiles"]).reset_index(drop=True)
+    out = score_smiles_list(generated_df["smiles"].tolist(), scorer=scorer)
+    out = out.merge(generated_df, on="smiles", how="left")
 
     out_dir = PROJECT_ROOT / "reports"
     out_dir.mkdir(parents=True, exist_ok=True)

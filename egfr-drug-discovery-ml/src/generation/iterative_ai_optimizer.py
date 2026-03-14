@@ -1,28 +1,30 @@
 from __future__ import annotations
 
-import joblib
 import pandas as pd
 from tqdm import tqdm
 
+from src.agents.multi_agent import build_default_scorer, score_smiles_list
 from src.config import PROJECT_ROOT
-from src.models.predict_and_score import score_molecule
 from src.generation.rgroup_generator import generate_rgroup_variants
+from src.pipelines.artifact_utils import load_csv_artifact
+from src.utils.chem import canonicalize_smiles
 
 
 def select_seed_pool(df: pd.DataFrame, top_k: int = 10) -> pd.DataFrame:
-    df = df.copy()
-    df = df[
-        (df["predicted_pIC50"] >= 8.8) &
-        (df["QED"] >= 0.45) &
-        (df["uncertainty"] <= 0.05) &
-        (df["penalty"] <= 0.3)
-    ]
-    return df.sort_values("final_score", ascending=False).head(top_k).reset_index(drop=True)
+    filtered = df[
+        (df["predicted_pIC50"] >= 8.5)
+        & (df["QED"] >= 0.40)
+        & (df["reward_hacking_risk"] <= 0.30)
+        & (df["agent_disagreement_score"] <= 0.45)
+        & (df["applicability_score"] >= 0.30)
+        & (df["audit_pass"] == True)
+        & (df["veto"] == False)
+    ].copy()
+    return filtered.sort_values("final_score", ascending=False).head(top_k).reset_index(drop=True)
 
 
 def main():
     ranked_path = PROJECT_ROOT / "reports" / "ranked_egfr_dataset.csv"
-    model_path = PROJECT_ROOT / "models" / "qsar_rf_ensemble.pkl"
 
     if not ranked_path.exists():
         raise FileNotFoundError(
@@ -30,75 +32,74 @@ def main():
             "Run: python -m src.models.rank_dataset"
         )
 
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Missing model: {model_path}\n"
-            "Run: python -m src.models.train_qsar_rf_ensemble"
-        )
+    ranked_df = load_csv_artifact(
+        ranked_path,
+        required_columns=["smiles", "predicted_pIC50", "QED", "reward_hacking_risk", "agent_disagreement_score", "applicability_score", "audit_pass", "veto", "final_score"],
+        producer="python -m src.models.rank_dataset",
+    )
+    scorer = build_default_scorer()
 
-    ranked_df = pd.read_csv(ranked_path)
-    models = joblib.load(model_path)
-
-    # initial seeds
     current_pool = select_seed_pool(ranked_df, top_k=10)
     all_generated = []
     seen = set(current_pool["smiles"].tolist())
 
-    n_rounds = 3
-    beam_width = 10
-    variants_per_seed = 60
+    n_rounds = 4
+    beam_width = 12
+    variants_per_seed = 80
 
     print(f"[INFO] Starting iterative optimization with {len(current_pool)} seed molecules")
 
     for round_idx in range(1, n_rounds + 1):
         print(f"\n[INFO] Round {round_idx}")
 
-        candidates = []
+        candidate_pairs = []
 
         for _, row in tqdm(current_pool.iterrows(), total=len(current_pool), desc=f"Round {round_idx} generation"):
             parent_smiles = row["smiles"]
             variants = generate_rgroup_variants(parent_smiles, max_variants=variants_per_seed)
 
             for smi in variants:
-                if smi in seen:
+                canonical_smiles = canonicalize_smiles(smi)
+                if not canonical_smiles or canonical_smiles in seen:
                     continue
-                seen.add(smi)
+                seen.add(canonical_smiles)
+                candidate_pairs.append(
+                    {
+                        "smiles": canonical_smiles,
+                        "parent_seed": parent_smiles,
+                        "round": round_idx,
+                    }
+                )
 
-                try:
-                    scored = score_molecule(smi, models)
-                    scored["parent_seed"] = parent_smiles
-                    scored["round"] = round_idx
-                    candidates.append(scored)
-                except Exception:
-                    continue
-
-        if not candidates:
+        if not candidate_pairs:
             print("[WARN] No candidates generated in this round.")
             break
 
-        cand_df = pd.DataFrame(candidates).drop_duplicates(subset=["smiles"]).copy()
-
-        # quality filters
+        candidate_df = pd.DataFrame(candidate_pairs).drop_duplicates(subset=["smiles"]).reset_index(drop=True)
+        cand_df = score_smiles_list(candidate_df["smiles"].tolist(), scorer=scorer)
+        cand_df = cand_df.merge(candidate_df, on="smiles", how="left")
         cand_df = cand_df[
-            (cand_df["predicted_pIC50"] >= 8.5) &
-            (cand_df["QED"] >= 0.40) &
-            (cand_df["uncertainty"] <= 0.08) &
-            (cand_df["penalty"] <= 0.3)
+            (cand_df["predicted_pIC50"] >= 8.3)
+            & (cand_df["QED"] >= 0.35)
+            & (cand_df["reward_hacking_risk"] <= 0.45)
+            & (cand_df["agent_disagreement_score"] <= 0.55)
+            & (cand_df["audit_status"] != "fail")
+            & (cand_df["veto"] == False)
         ].copy()
 
         if cand_df.empty:
             print("[WARN] No candidates survived filters.")
             break
 
-        cand_df = cand_df.sort_values("final_score", ascending=False).reset_index(drop=True)
-
         all_generated.append(cand_df)
-
-        # beam search: keep only top candidates for next round
         current_pool = cand_df.head(beam_width).copy()
 
         print("[INFO] Top round candidates:")
-        print(current_pool[["smiles", "predicted_pIC50", "QED", "uncertainty", "final_score"]].head(10).to_string(index=False))
+        print(
+            current_pool[
+                ["smiles", "predicted_pIC50", "QED", "reward_hacking_risk", "final_score"]
+            ].head(10).to_string(index=False)
+        )
 
     if not all_generated:
         print("[WARN] No optimized molecules were generated.")
