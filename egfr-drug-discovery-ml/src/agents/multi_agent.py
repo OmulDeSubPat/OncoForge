@@ -479,6 +479,26 @@ def _percentile_rank(series: pd.Series, higher_is_better: bool = True) -> pd.Ser
     return filled.rank(method="average", pct=True, ascending=higher_is_better)
 
 
+def _series_or_default(df: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+    if column not in df.columns:
+        return pd.Series(float(default), index=df.index, dtype=float)
+    return pd.to_numeric(df[column], errors="coerce").fillna(float(default))
+
+
+def resolve_priority_score_column(df: pd.DataFrame) -> str:
+    for column in [
+        "prospective_acquisition_score",
+        "experimental_readiness_priority",
+        "feasible_priority_score",
+        "interaction_priority_score",
+        "structural_priority_score",
+        "final_score",
+    ]:
+        if column in df.columns:
+            return column
+    raise ValueError("Unable to resolve a priority score column for structural ranking.")
+
+
 def add_multiobjective_ranking(df: pd.DataFrame, policy: ScoringPolicy | None = None) -> pd.DataFrame:
     if df.empty:
         return df
@@ -541,6 +561,105 @@ def add_multiobjective_ranking(df: pd.DataFrame, policy: ScoringPolicy | None = 
         ["reject", "review", "lead"],
         default="advance",
     )
+    return out
+
+
+def add_structure_agent_ranking(
+    df: pd.DataFrame,
+    policy: ScoringPolicy | None = None,
+    base_score_col: str | None = None,
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    active_policy = policy or ScoringPolicy()
+    out = df.copy()
+    base_column = base_score_col or resolve_priority_score_column(out)
+
+    docking_support = _series_or_default(out, "docking_rescore", 0.0).clip(lower=0.0, upper=1.0)
+    interaction_support = _series_or_default(out, "interaction_support_score", 0.0).clip(lower=0.0, upper=1.0)
+    key_residue_support = (_series_or_default(out, "interaction_key_residue_count", 0.0) / 4.0).clip(lower=0.0, upper=1.0)
+    vina_support = ((-_series_or_default(out, "vina_affinity_kcal", -6.0) - 6.5) / 2.5).clip(lower=0.0, upper=1.0)
+    feasibility_support = _series_or_default(out, "feasibility_score", 0.0).clip(lower=0.0, upper=1.0)
+    risk_support = (1.0 - _series_or_default(out, "reward_hacking_risk", 0.5)).clip(lower=0.0, upper=1.0)
+
+    uncertainty_series = _series_or_default(out, "uncertainty", 0.20)
+    if uncertainty_series.empty:
+        uncertainty_support = pd.Series(0.5, index=out.index, dtype=float)
+    else:
+        uncertainty_scale = max(0.10, float(uncertainty_series.quantile(0.90)))
+        uncertainty_support = (1.0 - (uncertainty_series / uncertainty_scale)).clip(lower=0.0, upper=1.0)
+
+    out["structure_docking_support"] = docking_support
+    out["structure_interaction_support"] = interaction_support
+    out["structure_key_residue_support"] = key_residue_support
+    out["structure_vina_support"] = vina_support
+    out["structure_guardrail_support"] = (
+        0.50 * feasibility_support
+        + 0.30 * risk_support
+        + 0.20 * uncertainty_support
+    ).clip(lower=0.0, upper=1.0)
+    out["structure_agent_support"] = (
+        0.32 * docking_support
+        + 0.28 * interaction_support
+        + 0.16 * key_residue_support
+        + 0.14 * vina_support
+        + 0.10 * feasibility_support
+    ).clip(lower=0.0, upper=1.0)
+
+    if "closest_market_docking_rescore" in out.columns:
+        out["structure_vs_market_gap"] = docking_support - _series_or_default(out, "closest_market_docking_rescore", 0.0)
+    else:
+        out["structure_vs_market_gap"] = docking_support - 0.50
+
+    out["structure_percentile"] = _percentile_rank(out["structure_agent_support"], higher_is_better=True)
+    out["interaction_percentile"] = _percentile_rank(out["structure_interaction_support"], higher_is_better=True)
+    out["structure_guardrail_percentile"] = _percentile_rank(out["structure_guardrail_support"], higher_is_better=True)
+    out["structure_market_gap_percentile"] = _percentile_rank(out["structure_vs_market_gap"], higher_is_better=True)
+    out["structure_base_percentile"] = _percentile_rank(_series_or_default(out, base_column, 0.0), higher_is_better=True)
+
+    out["structure_augmented_score"] = (
+        _series_or_default(out, base_column, 0.0)
+        + 0.90 * out["structure_agent_support"]
+        + 0.40 * out["structure_guardrail_support"]
+        + 0.30 * out["structure_percentile"]
+        + 0.20 * out["interaction_percentile"]
+        + 0.10 * out["structure_market_gap_percentile"]
+    )
+    out["structure_agent_disagreement"] = (
+        out[["structure_docking_support", "structure_interaction_support", "structure_guardrail_support"]].max(axis=1)
+        - out[["structure_docking_support", "structure_interaction_support", "structure_guardrail_support"]].min(axis=1)
+    )
+    out["structure_agent_status"] = np.select(
+        [
+            (_series_or_default(out, "veto", 0.0) >= 1.0)
+            | (_series_or_default(out, "reward_hacking_risk", 0.0) >= 0.60)
+            | (out["structure_guardrail_support"] < 0.35),
+            (out["structure_agent_support"] < 0.40)
+            | (out["structure_interaction_support"] < 0.30)
+            | (out["structure_agent_disagreement"] > active_policy.audit_pass_disagreement_threshold),
+        ],
+        ["fail", "review"],
+        default="pass",
+    )
+
+    out["audit_priority"] = out.get("audit_status", pd.Series("review", index=out.index)).map(
+        {"pass": 0, "review": 1, "fail": 2}
+    ).fillna(1).astype(int)
+    out["structure_priority"] = out["structure_agent_status"].map({"pass": 0, "review": 1, "fail": 2}).fillna(1).astype(int)
+
+    out = out.sort_values(
+        [
+            "veto" if "veto" in out.columns else "structure_priority",
+            "audit_priority",
+            "structure_priority",
+            "structure_augmented_score",
+            base_column,
+            "predicted_pIC50" if "predicted_pIC50" in out.columns else "structure_percentile",
+        ],
+        ascending=[True, True, True, False, False, False],
+    ).reset_index(drop=True)
+    out["structure_rank"] = np.arange(1, len(out) + 1)
     return out
 
 

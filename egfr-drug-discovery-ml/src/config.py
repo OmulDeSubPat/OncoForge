@@ -8,6 +8,7 @@ DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
+EXTERNAL_DIR = DATA_DIR / "external"
 
 # ChEMBL target for human EGFR
 EGFR_TARGET_CHEMBL_ID = "CHEMBL203"

@@ -11,6 +11,7 @@ from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem, Crippen, rdMolAlign, rdMolDescriptors, rdShapeHelpers
 
 from src.config import PROJECT_ROOT
+from src.structure.vina_docking import VinaDockingRescorer
 from src.utils.similarity import mol_from_smiles
 
 
@@ -169,3 +170,85 @@ class ReferenceLigandRescorer:
                 "docking_backend": "failed",
             }
         return best
+
+
+class StructuralConsensusRescorer:
+    def __init__(
+        self,
+        *,
+        backend: str = "auto",
+        pose_dir: Path | None = None,
+        vina_cpu: int = 1,
+        vina_exhaustiveness: int = 6,
+        vina_num_modes: int = 5,
+    ):
+        normalized_backend = backend.lower().strip()
+        if normalized_backend not in {"auto", "reference", "vina"}:
+            raise ValueError("backend must be one of: auto, reference, vina")
+
+        self.backend = normalized_backend
+        self.reference_rescorer = ReferenceLigandRescorer() if normalized_backend in {"auto", "reference"} else None
+        self.vina_rescorer = (
+            VinaDockingRescorer(
+                pose_dir=pose_dir,
+                cpu=vina_cpu,
+                exhaustiveness=vina_exhaustiveness,
+                num_modes=vina_num_modes,
+            )
+            if normalized_backend in {"auto", "vina"}
+            else None
+        )
+
+    def is_available(self) -> bool:
+        reference_available = self.reference_rescorer.is_available() if self.reference_rescorer is not None else False
+        vina_available = self.vina_rescorer.is_available() if self.vina_rescorer is not None else False
+        return reference_available or vina_available
+
+    def score_smiles(self, smiles: str, ligand_name: str | None = None) -> dict[str, Any]:
+        reference_payload: dict[str, Any] = {}
+        vina_payload: dict[str, Any] = {}
+
+        if self.reference_rescorer is not None and self.reference_rescorer.is_available():
+            reference_payload = self.reference_rescorer.score_smiles(smiles)
+        if self.vina_rescorer is not None and self.vina_rescorer.is_available():
+            vina_payload = self.vina_rescorer.score_smiles(smiles, ligand_name=ligand_name)
+
+        reference_support = float(reference_payload.get("docking_rescore", 0.0))
+        vina_support = float(vina_payload.get("vina_rescore", 0.0))
+        vina_ok = vina_payload.get("vina_status") == "ok"
+        reference_ok = bool(reference_payload) and reference_payload.get("docking_backend") not in {"failed", "unavailable"}
+
+        out: dict[str, Any] = {
+            "closest_pose_reference": reference_payload.get("closest_pose_reference"),
+            "closest_pose_smiles": reference_payload.get("closest_pose_smiles"),
+            "shape_similarity": float(reference_payload.get("shape_similarity", 0.0)),
+            "protrude_similarity": float(reference_payload.get("protrude_similarity", 0.0)),
+            "usr_similarity": float(reference_payload.get("usr_similarity", 0.0)),
+            "alignment_score_raw": float(reference_payload.get("alignment_score_raw", 0.0)),
+            "alignment_score_norm": float(reference_payload.get("alignment_score_norm", 0.0)),
+            "reference_docking_rescore": reference_support,
+            "reference_backend": reference_payload.get("docking_backend", "unavailable"),
+            "vina_affinity_kcal": vina_payload.get("vina_affinity_kcal"),
+            "vina_best_mode": vina_payload.get("vina_best_mode"),
+            "vina_best_rmsd_lb": vina_payload.get("vina_best_rmsd_lb"),
+            "vina_best_rmsd_ub": vina_payload.get("vina_best_rmsd_ub"),
+            "vina_pose_count": int(vina_payload.get("vina_pose_count", 0)),
+            "vina_rescore": vina_support,
+            "vina_status": vina_payload.get("vina_status", "unavailable"),
+            "docking_pose_path": vina_payload.get("docking_pose_path"),
+        }
+
+        if vina_ok and reference_ok:
+            out["docking_rescore"] = 0.65 * vina_support + 0.35 * reference_support
+            out["docking_backend"] = "consensus_vina_reference"
+        elif vina_ok:
+            out["docking_rescore"] = vina_support
+            out["docking_backend"] = "autodock_vina"
+        elif reference_ok:
+            out["docking_rescore"] = reference_support
+            out["docking_backend"] = reference_payload.get("docking_backend", "reference_ligand")
+        else:
+            out["docking_rescore"] = 0.0
+            out["docking_backend"] = "unavailable"
+
+        return out

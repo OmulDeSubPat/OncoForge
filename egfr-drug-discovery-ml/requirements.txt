@@ -6,3 +6,7 @@ rdkit
 scikit-learn
 joblib
 matplotlib
+python-docx
+meeko
+gemmi
+requests

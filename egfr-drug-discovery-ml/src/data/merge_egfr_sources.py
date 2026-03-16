@@ -55,13 +55,27 @@ def _coerce_interim_schema(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
 
 
 def main() -> None:
-    chembl_interim = _load_required_csv(INTERIM_DIR / "chembl_egfr_ic50_interim.csv")
-    bindingdb_interim = _load_required_csv(INTERIM_DIR / "bindingdb_egfr_ic50_interim.csv")
+    required_sources = [
+        ("chembl", INTERIM_DIR / "chembl_egfr_ic50_interim.csv"),
+        ("bindingdb_articles", INTERIM_DIR / "bindingdb_egfr_ic50_interim.csv"),
+    ]
+    optional_sources = [
+        ("papyrus", INTERIM_DIR / "papyrus_egfr_ic50_interim.csv"),
+        ("excape", INTERIM_DIR / "excape_egfr_ic50_interim.csv"),
+    ]
 
-    chembl_std = _coerce_interim_schema(chembl_interim, "chembl")
-    bindingdb_std = _coerce_interim_schema(bindingdb_interim, "bindingdb_articles")
+    standardized_frames = [
+        _coerce_interim_schema(_load_required_csv(path), source_name)
+        for source_name, path in required_sources
+    ]
+    included_optional: list[str] = []
+    for source_name, path in optional_sources:
+        if not path.exists():
+            continue
+        standardized_frames.append(_coerce_interim_schema(pd.read_csv(path, low_memory=False), source_name))
+        included_optional.append(source_name)
 
-    interim_df = pd.concat([chembl_std, bindingdb_std], ignore_index=True)
+    interim_df = pd.concat(standardized_frames, ignore_index=True)
     interim_df = interim_df.drop_duplicates(
         subset=["source_dataset", "source_record_id", "smiles_canonical", "ic50_nm"]
     ).reset_index(drop=True)
@@ -86,6 +100,9 @@ def main() -> None:
         "unique_molecules": int(len(processed_df)),
         "chembl_rows": int((interim_df["source_dataset"] == "chembl").sum()),
         "bindingdb_rows": int((interim_df["source_dataset"] == "bindingdb_articles").sum()),
+        "papyrus_rows": int((interim_df["source_dataset"] == "papyrus").sum()),
+        "excape_rows": int(interim_df["source_dataset"].astype(str).str.startswith("excape").sum()),
+        "optional_sources_included": included_optional,
         "molecules_with_multiple_sources": int((processed_df["n_sources"] > 1).sum()),
     }
 

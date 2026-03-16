@@ -1,0 +1,11 @@
+numpy
+pandas
+scikit-learn
+rdkit
+tqdm
+matplotlib
+requests
+joblib
+torch==2.4.1
+torchvision==0.19.1
+torch-directml

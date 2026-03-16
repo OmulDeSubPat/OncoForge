@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
+from src.agents.multi_agent import add_structure_agent_ranking
 from src.config import PROJECT_ROOT
+from src.feasibility.experimental_readiness import add_experimental_readiness
 from src.pipelines.artifact_utils import load_csv_artifact
 from src.utils.similarity import morgan_fp, tanimoto_similarity
 
 
 def main():
-    preferred_path = PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_rescored.csv"
-    in_path = preferred_path if preferred_path.exists() else (PROJECT_ROOT / "reports" / "generated_analogs_ranked.csv")
+    preferred_paths = [
+        PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_crossdb.csv",
+        PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_feasibility.csv",
+        PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_rescored.csv",
+        PROJECT_ROOT / "reports" / "generated_analogs_ranked.csv",
+    ]
+    in_path = next((path for path in preferred_paths if path.exists()), preferred_paths[-1])
     if not in_path.exists():
         raise FileNotFoundError(
             f"Missing file: {in_path}\n"
@@ -29,13 +37,61 @@ def main():
         & (df["audit_status"] == "pass")
         & (df["veto"] == False)
     ].copy()
-
+    if "feasibility_status" in df.columns:
+        df = df[(df["feasibility_status"] == "pass") & (df["feasibility_score"] >= 0.60)].copy()
+    if "experimental_readiness_status" in df.columns:
+        df = df[df["experimental_readiness_status"].isin(["ready", "supporting"])].copy()
+    if "cross_database_status" in df.columns:
+        df = df[df["cross_database_status"] != "weak"].copy()
+    if "external_evidence_status" in df.columns:
+        df = df[df["external_evidence_status"] != "fail"].copy()
     if "docking_rescore" in df.columns:
         df = df[df["docking_rescore"] >= 0.45].copy()
+
+    if not df.empty:
+        df = add_experimental_readiness(df)
+        df = add_structure_agent_ranking(df)
+        df = add_evidence_arbiter_ranking(df)
+
+    if "evidence_arbiter_priority" in df.columns:
+        df = df[df["evidence_arbiter_status"] != "fail"].copy()
+        sort_cols = [
+            "evidence_arbiter_state_priority",
+            "evidence_arbiter_priority",
+            "experimental_readiness_priority" if "experimental_readiness_priority" in df.columns else "structure_augmented_score",
+            "structure_augmented_score" if "structure_augmented_score" in df.columns else "final_score",
+            "final_score",
+        ]
+        ascending = [True, False, False, False, False]
+    elif "experimental_readiness_priority" in df.columns:
+        sort_cols = ["experimental_readiness_priority", "structure_augmented_score", "final_score"]
+        ascending = [False] * len(sort_cols)
+        if "external_evidence_priority" in df.columns:
+            sort_cols = ["experimental_readiness_priority", "external_evidence_priority", "structure_augmented_score", "final_score"]
+            ascending = [False] * len(sort_cols)
+        if "cross_database_consensus_score" in df.columns:
+            sort_cols = [
+                "experimental_readiness_priority",
+                "external_evidence_priority" if "external_evidence_priority" in df.columns else "cross_database_consensus_score",
+                "cross_database_consensus_score",
+                "structure_augmented_score",
+                "final_score",
+            ]
+            ascending = [False] * len(sort_cols)
+    elif "feasible_priority_score" in df.columns:
+        sort_cols = ["feasible_priority_score", "final_score"]
+        ascending = [False] * len(sort_cols)
+        if "docking_rescore" in df.columns:
+            sort_cols = ["feasible_priority_score", "docking_rescore", "final_score"]
+            ascending = [False] * len(sort_cols)
+    elif "docking_rescore" in df.columns:
+        df = df[df["docking_rescore"] >= 0.45].copy()
         sort_cols = ["structural_priority_score", "docking_rescore", "final_score"]
+        ascending = [False] * len(sort_cols)
     else:
         sort_cols = ["final_score"]
-    df = df.sort_values(sort_cols, ascending=[False] * len(sort_cols)).reset_index(drop=True)
+        ascending = [False]
+    df = df.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
 
     selected = []
     selected_fps = []

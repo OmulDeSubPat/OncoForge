@@ -4,18 +4,49 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Virtual env
+# Virtual environments
 .venv/
 venv/
+.venv*/
+env/
 
-# Models
+# Python packages / libraries
+*.dll
+*.lib
+*.so
+*.dylib
+
+# ML models
 *.pkl
 *.joblib
+*.pt
+*.pth
+
+# Large datasets
+/egfr-drug-discovery-ml/data/
+*.tsv
+*.xz
+*.csv
+
+# Generated project artifacts
+/egfr-drug-discovery-ml/reports/*.csv
+/egfr-drug-discovery-ml/reports/*.docx
+/egfr-drug-discovery-ml/reports/*.json
+/egfr-drug-discovery-ml/reports/**/*.csv
+/egfr-drug-discovery-ml/reports/**/*.docx
+/egfr-drug-discovery-ml/reports/**/*.json
+/egfr-drug-discovery-ml/reports/**/*.png
+/egfr-drug-discovery-ml/reports/**/*.pdbqt
+/egfr-drug-discovery-ml/reports/rl_gpu_dqn/
+/egfr-drug-discovery-ml/reports/rl_verifiable/
+/egfr-drug-discovery-ml/reports/vina_poses/
+/egfr-drug-discovery-ml/reports/technical_notebook/
+/egfr-drug-discovery-ml/reports/technical_notebook_history/
 
 # Jupyter
 .ipynb_checkpoints/
 
-# OS/editor
+# OS / editor
 .DS_Store
 Thumbs.db
 .vscode/

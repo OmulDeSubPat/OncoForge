@@ -28,16 +28,22 @@ The project addresses a real problem in computational drug discovery: the search
 
 ## Main Pipeline
 
-1. `python -m src.models.train_qsar_rf_ensemble`
+1. `python -m src.models.train_multiview_ensemble`
 2. `python -m src.models.rank_dataset`
-3. `python -m src.benchmark.score_marketed_egfr`
+3. `python -m src.structure.dock_marketed_egfr`
 4. `python -m src.generation.generate_and_rank_analogs`
 5. `python -m src.generation.generate_ai_guided_analogs`
 6. `python -m src.generation.iterative_ai_optimizer`
-7. `python -m src.benchmark.compare_candidates_to_market`
-8. `python -m src.benchmark.select_market_comparable_novel`
-9. `python -m src.generation.select_diverse_candidates`
-10. `python -m src.pipelines.build_project_summary`
+7. `python -m src.feasibility.assess_candidates`
+8. `python -m src.benchmark.compare_candidates_to_market`
+9. `python -m src.benchmark.select_market_comparable_novel`
+10. `python -m src.generation.select_diverse_candidates`
+11. `python -m src.models.run_model_robustness_benchmark`
+12. `python -m src.evaluation.run_source_holdout_benchmark`
+13. `python -m src.evaluation.run_reward_hacking_challenge`
+14. `python -m src.evaluation.run_rediscovery_benchmark`
+15. `python -m src.rl.train_verifiable_rl`
+16. `python -m src.pipelines.build_project_summary`
 
 Or run the full upgraded flow with:
 
@@ -51,18 +57,26 @@ Useful options:
 python -m src.pipelines.run_isef_pipeline --skip-training
 python -m src.pipelines.run_isef_pipeline --refresh-clean
 python -m src.pipelines.run_isef_pipeline --summary-only
+python -m src.pipelines.run_isef_pipeline --glossary-only
 ```
 
 ## Key Outputs
 
 - `reports/model_performance_summary.json`
+- `reports/model_robustness_summary.csv`
 - `reports/ranked_egfr_dataset.csv`
-- `reports/marketed_egfr_scored.csv`
+- `reports/marketed_egfr_structural_benchmark.csv`
 - `reports/generated_analogs_ranked.csv`
 - `reports/iterative_ai_optimized_candidates.csv`
+- `reports/iterative_ai_optimized_candidates_feasibility.csv`
 - `reports/final_diverse_candidates.csv`
 - `reports/market_comparable_novel_shortlist.csv`
+- `reports/reward_hacking_challenge/reward_hacking_challenge_summary.csv`
+- `reports/source_holdout_benchmark.csv`
+- `reports/rediscovery_benchmark/rediscovery_summary.json`
 - `reports/isef_project_summary.md`
+- `reports/OncoForge_Technical_Notebook.docx`
+- `reports/OncoForge_Buzzword_Glossary.docx`
 
 ## Project Positioning
 
