@@ -9,6 +9,7 @@ from tqdm import tqdm
 from src.agents.multi_agent import build_default_scorer, score_smiles_list
 from src.config import PROJECT_ROOT
 from src.generation.generation_benchmark import summarize_generated_frame
+from src.generation.lineage_tracking import add_parent_child_tracking
 from src.generation.medchem_mutations import generate_medchem_outcomes
 from src.pipelines.artifact_utils import load_csv_artifact
 from src.utils.chem import canonicalize_smiles
@@ -61,11 +62,13 @@ def main(argv: list[str] | None = None):
 
     generated_pairs = []
     seen = set()
+    attempted_candidates = 0
 
     print(f"[INFO] Selected {len(seed_smiles)} high-quality seed molecules")
 
     for seed in tqdm(seed_smiles, desc="AI-guided analog generation"):
         variants = generate_medchem_outcomes(seed, max_variants=int(args.variants_per_seed))
+        attempted_candidates += len(variants)
 
         for variant in variants:
             canonical_smiles = canonicalize_smiles(variant.smiles)
@@ -89,12 +92,19 @@ def main(argv: list[str] | None = None):
                     "property_support_score": variant.property_support_score,
                     "category_priority_score": variant.category_priority_score,
                     "generator_priority_score": variant.generator_priority_score,
+                    "adaptive_action_prior": variant.adaptive_action_prior,
                     "hard_constraint_pass": variant.hard_constraint_pass,
                     "hard_constraint_notes": variant.hard_constraint_notes,
                     "introduced_warhead": variant.introduced_warhead,
                     "warhead_retained": variant.warhead_retained,
                     "alert_count": variant.alert_count,
                     "severe_alert_count": variant.severe_alert_count,
+                    "structural_guidance_score": variant.structural_guidance_score,
+                    "structure_guidance_reference": variant.structure_guidance_reference,
+                    "structure_guidance_backend": variant.structure_guidance_backend,
+                    "ancestor_seed": seed,
+                    "lineage_depth": 1,
+                    "lineage_path": f"{seed} -> {canonical_smiles}",
                 }
             )
 
@@ -105,11 +115,14 @@ def main(argv: list[str] | None = None):
     generated_df = pd.DataFrame(generated_pairs).drop_duplicates(subset=["smiles"]).reset_index(drop=True)
     out = score_smiles_list(generated_df["smiles"].tolist(), scorer=scorer)
     out = out.merge(generated_df, on="smiles", how="left")
+    out = add_parent_child_tracking(out, parent_reference=ranked_df)
     out["generator_composite_score"] = (
         _series(out, "final_score")
         + 0.80 * _series(out, "generator_priority_score")
+        + 0.18 * _series(out, "adaptive_action_prior")
         + 0.20 * _series(out, "parent_similarity")
         + 0.10 * _series(out, "property_support_score")
+        + 0.22 * _series(out, "structural_guidance_score")
         - 0.20 * _series(out, "reward_hacking_risk")
     )
     filtered = out[_series(out, "generator_priority_score") >= 0.35].copy()
@@ -131,6 +144,7 @@ def main(argv: list[str] | None = None):
         extra={
             "seed_count": int(len(seed_smiles)),
             "variants_per_seed": int(args.variants_per_seed),
+            "attempted_candidates": int(attempted_candidates),
         },
     )
 

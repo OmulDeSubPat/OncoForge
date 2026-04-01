@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from src.config import PROJECT_ROOT
+from src.pipelines.build_competition_report_assets import build_assets as build_competition_report_assets
 from src.visualization.technical_notebook_plots import NOTEBOOK_DIR, build_assets
 
 
@@ -32,6 +33,7 @@ def main(argv: list[str] | None = None) -> None:
         out_dir = PROJECT_ROOT / out_dir
 
     build_assets(ranked_path=ranked_path, out_dir=out_dir)
+    build_competition_report_assets(out_dir=out_dir)
 
 
 if __name__ == "__main__":

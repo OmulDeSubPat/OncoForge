@@ -44,7 +44,7 @@
     "mean_abs_error": 0.4704025822770176,
     "mean_predicted_std": 0.1325827202994739,
     "mean_calibrated_std": 0.5303308811978956,
-    "mean_normalized_abs_error": 1.3906645097004884
+    "mean_normalized_abs_error": 1.3906645097004957
   },
   "scaffold_calibration": {
     "target_one_sigma_coverage": 0.6826894921370859,
@@ -54,20 +54,20 @@
     "calibrated_one_sigma_coverage": 0.5498452012383901,
     "calibrated_two_sigma_coverage": 0.7814241486068112,
     "mean_abs_error": 0.5512701725289354,
-    "mean_predicted_std": 0.1380932151242833,
-    "mean_calibrated_std": 0.5523728604971332,
-    "mean_normalized_abs_error": 1.5515213201710134
+    "mean_predicted_std": 0.13809321512428333,
+    "mean_calibrated_std": 0.5523728604971333,
+    "mean_normalized_abs_error": 1.5515213201710083
   },
   "temporal_calibration": {
     "target_one_sigma_coverage": 0.6826894921370859,
-    "raw_one_sigma_coverage": 0.11910828025477707,
-    "raw_two_sigma_coverage": 0.22356687898089173,
+    "raw_one_sigma_coverage": 0.059484467944481166,
+    "raw_two_sigma_coverage": 0.11335095836087244,
     "recommended_uncertainty_scale": 4.0,
-    "calibrated_one_sigma_coverage": 0.4012738853503185,
-    "calibrated_two_sigma_coverage": 0.6579617834394904,
-    "mean_abs_error": 0.9473806141425319,
-    "mean_predicted_std": 0.16490048132036225,
-    "mean_calibrated_std": 0.659601925281449,
-    "mean_normalized_abs_error": 2.7031930586196125
+    "calibrated_one_sigma_coverage": 0.24818241903502974,
+    "calibrated_two_sigma_coverage": 0.5601454064771976,
+    "mean_abs_error": 1.4480164465334717,
+    "mean_predicted_std": 0.20162555206220958,
+    "mean_calibrated_std": 0.8065022082488383,
+    "mean_normalized_abs_error": 2.6752471812864176
   }
 }

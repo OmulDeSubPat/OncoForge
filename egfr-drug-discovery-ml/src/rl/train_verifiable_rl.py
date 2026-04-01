@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.evaluation.cross_database_validation import CrossDatabaseValidator
 from src.feasibility.experimental_readiness import add_experimental_readiness, load_market_benchmark
@@ -95,9 +96,13 @@ def _compare_to_baselines(rl_df: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
                 "mean_QED": float(df["QED"].mean()) if "QED" in df.columns else 0.0,
                 "mean_reward_hacking_risk": float(df["reward_hacking_risk"].mean()) if "reward_hacking_risk" in df.columns else 0.0,
                 "pass_rate": float((df["audit_status"] == "pass").mean()) if "audit_status" in df.columns else 0.0,
+                "mean_adaptive_action_prior": float(df["adaptive_action_prior"].mean()) if "adaptive_action_prior" in df.columns else 0.0,
                 "mean_external_evidence_support": float(df["external_evidence_support"].mean()) if "external_evidence_support" in df.columns else 0.0,
                 "ready_rate": float((df["experimental_readiness_status"] == "ready").mean()) if "experimental_readiness_status" in df.columns else 0.0,
                 "mean_evidence_arbiter_support": float(df["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in df.columns else 0.0,
+                "mean_structure_evidence_support": float(df["structure_evidence_support"].mean()) if "structure_evidence_support" in df.columns else 0.0,
+                "mean_structure_evidence_guardrail": float(df["structure_evidence_guardrail"].mean()) if "structure_evidence_guardrail" in df.columns else 0.0,
+                "structure_evidence_pass_rate": float((df["structure_evidence_status"] == "pass").mean()) if "structure_evidence_status" in df.columns else 0.0,
             }
         )
     comparison_rows.append(
@@ -108,9 +113,13 @@ def _compare_to_baselines(rl_df: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
             "mean_QED": float(rl_df["QED"].mean()) if not rl_df.empty else 0.0,
             "mean_reward_hacking_risk": float(rl_df["reward_hacking_risk"].mean()) if not rl_df.empty else 0.0,
             "pass_rate": float((rl_df["audit_status"] == "pass").mean()) if not rl_df.empty else 0.0,
+            "mean_adaptive_action_prior": float(rl_df["adaptive_action_prior"].mean()) if "adaptive_action_prior" in rl_df.columns and not rl_df.empty else 0.0,
             "mean_external_evidence_support": float(rl_df["external_evidence_support"].mean()) if "external_evidence_support" in rl_df.columns and not rl_df.empty else 0.0,
             "ready_rate": float((rl_df["experimental_readiness_status"] == "ready").mean()) if "experimental_readiness_status" in rl_df.columns and not rl_df.empty else 0.0,
             "mean_evidence_arbiter_support": float(rl_df["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in rl_df.columns and not rl_df.empty else 0.0,
+            "mean_structure_evidence_support": float(rl_df["structure_evidence_support"].mean()) if "structure_evidence_support" in rl_df.columns and not rl_df.empty else 0.0,
+            "mean_structure_evidence_guardrail": float(rl_df["structure_evidence_guardrail"].mean()) if "structure_evidence_guardrail" in rl_df.columns and not rl_df.empty else 0.0,
+            "structure_evidence_pass_rate": float((rl_df["structure_evidence_status"] == "pass").mean()) if "structure_evidence_status" in rl_df.columns and not rl_df.empty else 0.0,
         }
     )
     comparison = pd.DataFrame(comparison_rows)
@@ -154,7 +163,10 @@ def _evaluation_rollout(
         if not action_names:
             break
         action_priors = {
-            action.action_id: float(action.reward_profile["reward_total"]) + 0.10 * float(action.candidate_profile.get("generator_priority_score", 0.0))
+            action.action_id: float(action.reward_profile["reward_total"])
+            + 0.10 * float(action.candidate_profile.get("generator_priority_score", 0.0))
+            + 0.08 * float(action.candidate_profile.get("structural_guidance_score", 0.0))
+            + 0.06 * float(action.candidate_profile.get("adaptive_action_prior", 0.5))
             for action in actions
         }
         action_name = agent.select_action(state_key, action_names, greedy=True, action_priors=action_priors)
@@ -170,6 +182,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--evaluation-rollouts", type=int, default=12)
     parser.add_argument("--max-actions-per-family", type=int, default=3)
     parser.add_argument("--max-actions-total", type=int, default=24)
+    parser.add_argument("--structure-guidance-budget", type=int, default=32)
     args = parser.parse_args(argv)
 
     ranked_path = PROJECT_ROOT / "reports" / "ranked_egfr_dataset.csv"
@@ -183,6 +196,7 @@ def main(argv: list[str] | None = None) -> None:
         max_steps=args.max_steps,
         max_actions_per_family=args.max_actions_per_family,
         max_actions_total=args.max_actions_total,
+        structure_guidance_budget=args.structure_guidance_budget,
     )
     agent = TabularQLearningAgent()
 
@@ -204,7 +218,10 @@ def main(argv: list[str] | None = None) -> None:
             if not action_names:
                 break
             action_priors = {
-                action.action_id: float(action.reward_profile["reward_total"]) + 0.10 * float(action.candidate_profile.get("generator_priority_score", 0.0))
+                action.action_id: float(action.reward_profile["reward_total"])
+                + 0.10 * float(action.candidate_profile.get("generator_priority_score", 0.0))
+                + 0.08 * float(action.candidate_profile.get("structural_guidance_score", 0.0))
+                + 0.06 * float(action.candidate_profile.get("adaptive_action_prior", 0.5))
                 for action in actions
             }
             action_name = agent.select_action(state_key, action_names, action_priors=action_priors)
@@ -266,6 +283,9 @@ def main(argv: list[str] | None = None) -> None:
     for _, row in terminal_df.iterrows():
         feasibility = assessor.assess(
             str(row["smiles"]),
+            action_name=str(row["action_name"]) if "action_name" in row and pd.notna(row["action_name"]) else None,
+            action_rule_source=str(row["action_rule_source"]) if "action_rule_source" in row and pd.notna(row["action_rule_source"]) else None,
+            synthetic_route=str(row["synthetic_route"]) if "synthetic_route" in row and pd.notna(row["synthetic_route"]) else None,
             docking_rescore=float(row["docking_rescore"]) if "docking_rescore" in row and pd.notna(row["docking_rescore"]) else None,
             interaction_support_score=float(row["interaction_support_score"]) if "interaction_support_score" in row and pd.notna(row["interaction_support_score"]) else None,
             interaction_key_residue_count=int(row["interaction_key_residue_count"]) if "interaction_key_residue_count" in row and pd.notna(row["interaction_key_residue_count"]) else None,
@@ -277,6 +297,7 @@ def main(argv: list[str] | None = None) -> None:
             + 0.80 * float(out_row["feasibility_score"])
             + 0.50 * float(out_row.get("docking_rescore", 0.0))
             + 0.50 * float(out_row.get("interaction_support_score", 0.0))
+            + 0.14 * float(out_row.get("adaptive_action_prior", 0.5))
         )
         feasibility_rows.append(out_row)
     terminal_df = pd.DataFrame(feasibility_rows)
@@ -289,6 +310,7 @@ def main(argv: list[str] | None = None) -> None:
             sort_output=False,
         )
         terminal_df = add_evidence_arbiter_ranking(terminal_df)
+        terminal_df = add_structure_evidence_arbiter(terminal_df)
         terminal_df["rl_priority_score"] = (
             _series(terminal_df, "verified_reward", 0.0)
             + 0.80 * _series(terminal_df, "feasibility_score", 0.0)
@@ -298,6 +320,9 @@ def main(argv: list[str] | None = None) -> None:
             + 0.30 * _series(terminal_df, "external_evidence_support", 0.0)
             + 0.25 * _series(terminal_df, "experimental_readiness_score", 0.0)
             + 0.25 * _series(terminal_df, "evidence_arbiter_support", 0.0)
+            + 0.30 * _series(terminal_df, "structure_evidence_support", 0.0)
+            + 0.12 * _series(terminal_df, "structure_evidence_guardrail", 0.0)
+            + 0.16 * _series(terminal_df, "adaptive_action_prior", 0.5)
         )
         terminal_df["rl_audit_priority"] = terminal_df.get("audit_status", pd.Series("review", index=terminal_df.index)).map(
             {"pass": 0, "review": 1, "fail": 2}
@@ -314,8 +339,13 @@ def main(argv: list[str] | None = None) -> None:
             "evidence_arbiter_status",
             pd.Series("review", index=terminal_df.index),
         ).map({"pass": 0, "review": 1, "fail": 2}).fillna(1).astype(int)
+        terminal_df["rl_structure_priority"] = terminal_df.get(
+            "structure_evidence_status",
+            pd.Series("review", index=terminal_df.index),
+        ).map({"pass": 0, "review": 1, "fail": 2}).fillna(1).astype(int)
     terminal_df = terminal_df.sort_values(
         [
+            "rl_structure_priority" if "rl_structure_priority" in terminal_df.columns else "rl_priority_score",
             "rl_arbiter_priority" if "rl_arbiter_priority" in terminal_df.columns else "rl_priority_score",
             "rl_audit_priority" if "rl_audit_priority" in terminal_df.columns else "audit_status",
             "rl_external_priority" if "rl_external_priority" in terminal_df.columns else "rl_priority_score",
@@ -325,7 +355,7 @@ def main(argv: list[str] | None = None) -> None:
             "predicted_pIC50",
             "QED",
         ],
-        ascending=[True, True, True, True, False, False, False, False],
+        ascending=[True, True, True, True, True, False, False, False, False],
     ).reset_index(drop=True)
     terminal_df["rl_rank"] = terminal_df.index + 1
 
@@ -345,17 +375,23 @@ def main(argv: list[str] | None = None) -> None:
         "max_steps": int(args.max_steps),
         "max_actions_per_family": int(args.max_actions_per_family),
         "max_actions_total": int(args.max_actions_total),
+        "structure_guidance_budget": int(args.structure_guidance_budget),
         "seed_pool_size": int(len(seeds)),
         "best_episode_return": float(episode_df["episode_return"].max()) if not episode_df.empty else 0.0,
         "mean_episode_return": float(episode_df["episode_return"].mean()) if not episode_df.empty else 0.0,
         "mean_generator_priority_score": float(terminal_df["generator_priority_score"].mean()) if "generator_priority_score" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_parent_similarity": float(terminal_df["parent_similarity"].mean()) if "parent_similarity" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_adaptive_action_prior": float(terminal_df["adaptive_action_prior"].mean()) if "adaptive_action_prior" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_cross_database_consensus": float(terminal_df["cross_database_consensus_score"].mean()) if "cross_database_consensus_score" in terminal_df.columns and not terminal_df.empty else 0.0,
         "external_evidence_pass_rate": float((terminal_df["external_evidence_status"] == "pass").mean()) if "external_evidence_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_external_evidence_support": float(terminal_df["external_evidence_support"].mean()) if "external_evidence_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_experimental_readiness_score": float(terminal_df["experimental_readiness_score"].mean()) if "experimental_readiness_score" in terminal_df.columns and not terminal_df.empty else 0.0,
         "readiness_ready_rate": float((terminal_df["experimental_readiness_status"] == "ready").mean()) if "experimental_readiness_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "arbiter_pass_rate": float((terminal_df["evidence_arbiter_status"] == "pass").mean()) if "evidence_arbiter_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_evidence_arbiter_support": float(terminal_df["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_structure_evidence_support": float(terminal_df["structure_evidence_support"].mean()) if "structure_evidence_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_structure_evidence_guardrail": float(terminal_df["structure_evidence_guardrail"].mean()) if "structure_evidence_guardrail" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "structure_evidence_pass_rate": float((terminal_df["structure_evidence_status"] == "pass").mean()) if "structure_evidence_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "top_candidate": terminal_df.head(1).to_dict(orient="records"),
         "baseline_comparison": comparison.to_dict(orient="records"),
     }
@@ -376,6 +412,8 @@ def main(argv: list[str] | None = None) -> None:
                     "external_evidence_support",
                     "experimental_readiness_score",
                     "evidence_arbiter_support",
+                    "structure_evidence_support",
+                    "adaptive_action_prior",
                     "audit_status",
                     "reward_hacking_risk",
                     "rl_priority_score",

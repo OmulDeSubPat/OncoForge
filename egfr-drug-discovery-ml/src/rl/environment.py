@@ -35,6 +35,7 @@ class VerifiableMoleculeEnv:
         max_variants_per_step: int = 60,
         max_actions_per_family: int = 2,
         max_actions_total: int = 18,
+        structure_guidance_budget: int = 48,
         random_seed: int = 42,
     ):
         if not seed_smiles:
@@ -47,6 +48,7 @@ class VerifiableMoleculeEnv:
         self.max_variants_per_step = int(max_variants_per_step)
         self.max_actions_per_family = int(max(1, max_actions_per_family))
         self.max_actions_total = int(max(2, max_actions_total))
+        self.structure_guidance_budget = int(max(8, structure_guidance_budget))
         self.random = random.Random(random_seed)
 
         self.current_smiles: str | None = None
@@ -86,7 +88,11 @@ class VerifiableMoleculeEnv:
         if self._cached_actions is not None:
             return self._cached_actions
 
-        outcomes = generate_medchem_outcomes(self.current_smiles, max_variants=self.max_variants_per_step)
+        outcomes = generate_medchem_outcomes(
+            self.current_smiles,
+            max_variants=self.max_variants_per_step,
+            structure_guidance_budget=self.structure_guidance_budget,
+        )
         if not outcomes:
             self._cached_actions = []
             return self._cached_actions
@@ -120,22 +126,29 @@ class VerifiableMoleculeEnv:
                     "property_support_score": outcome.property_support_score,
                     "category_priority_score": outcome.category_priority_score,
                     "generator_priority_score": outcome.generator_priority_score,
+                    "adaptive_action_prior": outcome.adaptive_action_prior,
                     "hard_constraint_pass": outcome.hard_constraint_pass,
                     "hard_constraint_notes": outcome.hard_constraint_notes,
                     "introduced_warhead": outcome.introduced_warhead,
                     "warhead_retained": outcome.warhead_retained,
                     "alert_count": outcome.alert_count,
                     "severe_alert_count": outcome.severe_alert_count,
+                    "structural_guidance_score": outcome.structural_guidance_score,
+                    "structure_guidance_reference": outcome.structure_guidance_reference,
+                    "structure_guidance_backend": outcome.structure_guidance_backend,
                 }
             )
             feasibility_profile = self.assessor.assess(
                 smiles,
                 parent_smiles=self.current_smiles,
                 action_name=outcome.action_name,
+                action_rule_source=outcome.rule_source,
+                synthetic_route=outcome.synthetic_route,
                 synthetic_feasibility_score=outcome.synthetic_feasibility_score,
                 medchem_realism_score=outcome.medchem_realism_score,
                 transformation_confidence=outcome.transformation_confidence,
                 reaction_family=outcome.reaction_family,
+                docking_rescore=outcome.structural_guidance_score,
             )
             reward_profile = compute_verifiable_reward(
                 self.current_profile,
@@ -160,6 +173,7 @@ class VerifiableMoleculeEnv:
                 items,
                 key=lambda item: (
                     float(item.reward_profile["reward_total"]),
+                    float(item.candidate_profile.get("adaptive_action_prior", 0.5)),
                     float(item.candidate_profile.get("generator_priority_score", 0.0)),
                     float(item.candidate_profile.get("final_score", 0.0)),
                     float(item.feasibility_profile.get("feasibility_score", 0.0)),
@@ -182,6 +196,7 @@ class VerifiableMoleculeEnv:
         best_actions.sort(
             key=lambda item: (
                 float(item.reward_profile["reward_total"]),
+                float(item.candidate_profile.get("adaptive_action_prior", 0.5)),
                 float(item.candidate_profile.get("generator_priority_score", 0.0)),
                 float(item.candidate_profile.get("final_score", 0.0)),
             ),

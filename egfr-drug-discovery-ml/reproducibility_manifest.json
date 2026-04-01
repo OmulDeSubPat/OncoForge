@@ -1,0 +1,70 @@
+{
+  "root": "D:\\ONCS 2026\\egfr-drug-discovery-ml",
+  "files": [
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_R2.csv",
+      "exists": true,
+      "size": 626
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_RMSE.csv",
+      "exists": true,
+      "size": 626
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_MAE.csv",
+      "exists": true,
+      "size": 626
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_MSE.csv",
+      "exists": true,
+      "size": 67
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_pIC50.csv",
+      "exists": true,
+      "size": 69
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_IC50.csv",
+      "exists": true,
+      "size": 68
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_Pearson.csv",
+      "exists": true,
+      "size": 71
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_Spearman.csv",
+      "exists": true,
+      "size": 72
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\valori_Incertitudine.csv",
+      "exists": true,
+      "size": 638
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\istoric_metrici.csv",
+      "exists": true,
+      "size": 2404
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\benchmark_studii.csv",
+      "exists": true,
+      "size": 70
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\comparatii_literatura.csv",
+      "exists": true,
+      "size": 70
+    },
+    {
+      "path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\legenda_grafice.md",
+      "exists": true,
+      "size": 3116
+    }
+  ]
+}

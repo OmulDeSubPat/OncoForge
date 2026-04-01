@@ -12,6 +12,7 @@ import pandas as pd
 from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
 from src.agents.external_evidence_agent import add_external_evidence_agent_ranking
 from src.agents.multi_agent import resolve_priority_score_column
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.evaluation.cross_database_validation import CrossDatabaseValidator
 from src.feasibility.experimental_readiness import add_experimental_readiness, load_market_benchmark
@@ -96,6 +97,8 @@ def build_prospective_validation_batch(
         ("shortlist", _optional_csv(PROJECT_ROOT / "reports" / "market_comparable_novel_shortlist.csv")),
         ("generated", _optional_csv(PROJECT_ROOT / "reports" / "generated_analogs_ranked_structural_crossdb.csv")),
         ("rl", _optional_csv(PROJECT_ROOT / "reports" / "rl_verifiable" / "rl_top_candidates.csv")),
+        ("gpu_rl_dqn", _optional_csv(PROJECT_ROOT / "reports" / "rl_gpu_dqn" / "gpu_rl_top_candidates.csv")),
+        ("gpu_actor_critic", _optional_csv(PROJECT_ROOT / "reports" / "rl_gpu_actor_critic" / "gpu_actor_critic_top_candidates.csv")),
     ]
 
     prepared = [
@@ -115,6 +118,7 @@ def build_prospective_validation_batch(
     candidates = add_external_evidence_agent_ranking(candidates)
     candidates = add_experimental_readiness(candidates, market_df=market_df)
     candidates = add_evidence_arbiter_ranking(candidates)
+    candidates = add_structure_evidence_arbiter(candidates)
 
     base_score_column = resolve_priority_score_column(candidates)
     candidates["base_priority_score"] = _series(candidates, base_score_column, 0.0)
@@ -138,10 +142,17 @@ def build_prospective_validation_batch(
         candidates = candidates[candidates["experimental_readiness_status"] != "hold"].copy()
     if "cross_database_status" in candidates.columns:
         candidates = candidates[candidates["cross_database_status"] != "weak"].copy()
+    if "structure_evidence_status" in candidates.columns:
+        candidates = candidates[candidates["structure_evidence_status"] != "fail"].copy()
 
     candidates = candidates.sort_values(
-        ["experimental_readiness_priority", "base_priority_score"],
-        ascending=[False, False],
+        [
+            "structure_evidence_state_priority" if "structure_evidence_state_priority" in candidates.columns else "experimental_readiness_priority",
+            "structure_evidence_pareto_front_rank" if "structure_evidence_pareto_front_rank" in candidates.columns else "experimental_readiness_priority",
+            "structure_evidence_priority" if "structure_evidence_priority" in candidates.columns else "base_priority_score",
+            "base_priority_score",
+        ],
+        ascending=[True, True, False, False],
     ).drop_duplicates(subset=["smiles"], keep="first").reset_index(drop=True)
 
     base_percentile = candidates["base_priority_score"].rank(method="average", pct=True, ascending=True)
@@ -170,6 +181,8 @@ def build_prospective_validation_batch(
             "optimized_crossdb": 0.03,
             "optimized_feasibility": 0.02,
             "generated": 0.02,
+            "gpu_rl_dqn": 0.03,
+            "gpu_actor_critic": 0.03,
         }
     ).fillna(0.0)
     candidates["prospective_validation_evidence"] = validation_evidence
@@ -180,9 +193,11 @@ def build_prospective_validation_batch(
         + 0.14 * _series(candidates, "cross_database_consensus_score", 0.0)
         + 0.08 * _series(candidates, "external_evidence_support", 0.0)
         + 0.08 * _series(candidates, "evidence_arbiter_support", 0.0)
+        + 0.10 * _series(candidates, "structure_evidence_support", 0.0)
         + 0.15 * base_percentile
         + 0.10 * exploration_score
         + 0.10 * validation_evidence
+        + 0.10 * _series(candidates, "structure_evidence_pareto_priority_bonus", 0.0)
         + source_bonus
     )
 
@@ -231,6 +246,8 @@ def build_prospective_validation_batch(
         "mean_docking_rescore": float(selected["docking_rescore"].mean()) if "docking_rescore" in selected.columns and not selected.empty else 0.0,
         "mean_external_evidence_support": float(selected["external_evidence_support"].mean()) if "external_evidence_support" in selected.columns and not selected.empty else 0.0,
         "mean_evidence_arbiter_support": float(selected["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in selected.columns and not selected.empty else 0.0,
+        "mean_structure_evidence_support": float(selected["structure_evidence_support"].mean()) if "structure_evidence_support" in selected.columns and not selected.empty else 0.0,
+        "pareto_front_rate": float(selected["structure_evidence_pareto_is_front"].mean()) if "structure_evidence_pareto_is_front" in selected.columns and not selected.empty else 0.0,
     }
 
     target_path = out_path or (PROJECT_ROOT / "reports" / "prospective_validation_batch.csv")
@@ -270,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
         "predicted_pIC50",
         "experimental_readiness_score",
         "prospective_acquisition_score",
+        "structure_evidence_support",
         "experimental_readiness_status",
         "experimental_track",
     ]

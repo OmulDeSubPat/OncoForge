@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
 from src.agents.multi_agent import add_structure_agent_ranking
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.feasibility.experimental_readiness import add_experimental_readiness
 from src.pipelines.artifact_utils import load_csv_artifact
@@ -52,8 +53,19 @@ def main():
         df = add_experimental_readiness(df)
         df = add_structure_agent_ranking(df)
         df = add_evidence_arbiter_ranking(df)
+        df = add_structure_evidence_arbiter(df)
 
-    if "evidence_arbiter_priority" in df.columns:
+    if "structure_evidence_priority" in df.columns:
+        df = df[df["structure_evidence_status"] != "fail"].copy()
+        sort_cols = [
+            "structure_evidence_state_priority",
+            "structure_evidence_pareto_front_rank",
+            "structure_evidence_priority",
+            "evidence_arbiter_priority" if "evidence_arbiter_priority" in df.columns else "final_score",
+            "final_score",
+        ]
+        ascending = [True, True, False, False, False]
+    elif "evidence_arbiter_priority" in df.columns:
         df = df[df["evidence_arbiter_status"] != "fail"].copy()
         sort_cols = [
             "evidence_arbiter_state_priority",

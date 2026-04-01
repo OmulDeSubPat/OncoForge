@@ -1,7 +1,16 @@
 {
-  "interim_rows": 19553,
-  "unique_molecules": 10606,
+  "interim_rows": 32271,
+  "unique_molecules": 16133,
+  "rows_with_year": 27209,
+  "rows_with_year_source": 32271,
+  "mean_year_confidence": 0.7890613863840599,
   "chembl_rows": 18588,
   "bindingdb_rows": 965,
-  "molecules_with_multiple_sources": 710
+  "papyrus_rows": 7695,
+  "excape_rows": 5023,
+  "optional_sources_included": [
+    "papyrus",
+    "excape"
+  ],
+  "molecules_with_multiple_sources": 5065
 }

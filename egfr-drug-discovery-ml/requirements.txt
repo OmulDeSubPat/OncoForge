@@ -10,3 +10,7 @@ python-docx
 meeko
 gemmi
 requests
+pytest>=8.0
+streamlit>=1.43
+fastapi>=0.116
+uvicorn>=0.35

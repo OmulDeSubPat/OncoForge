@@ -1,5 +1,5 @@
 {
-  "dataset_size": 10606,
+  "dataset_size": 16133,
   "dataset_name": "multisource",
   "dataset_path": "D:\\ONCS 2026\\egfr-drug-discovery-ml\\data\\processed\\egfr_multisource_ic50_clean.csv",
   "smiles_column": "smiles_canonical",
@@ -17,73 +17,85 @@
     "rf_hybrid": "hybrid"
   },
   "random_split": {
-    "mae": 0.4913685850164479,
-    "rmse": 0.6601573323003216,
-    "r2": 0.7469832830172807,
-    "avg_uncertainty": 0.12572683903795717,
+    "mae": 0.4704025822770176,
+    "rmse": 0.6508829779836404,
+    "r2": 0.7616330143813422,
+    "avg_uncertainty": 0.1325827202994739,
     "n_models": 3,
-    "train_size": 8484,
-    "test_size": 2122
+    "train_size": 12906,
+    "test_size": 3227
   },
   "scaffold_split": {
-    "mae": 0.5603218055938517,
-    "rmse": 0.7409472016209232,
-    "r2": 0.683374484713541,
-    "avg_uncertainty": 0.13975605224893767,
+    "mae": 0.5512701725289354,
+    "rmse": 0.7387377174247358,
+    "r2": 0.7164146865622143,
+    "avg_uncertainty": 0.13809321512428333,
     "n_models": 3,
-    "train_size": 8485,
-    "test_size": 2121
+    "train_size": 12903,
+    "test_size": 3230
   },
   "uncertainty_calibration": {
     "recommended_uncertainty_scale": 4.0,
     "random_split": {
       "target_one_sigma_coverage": 0.6826894921370859,
-      "raw_one_sigma_coverage": 0.17247879359095195,
-      "raw_two_sigma_coverage": 0.3176248821866164,
+      "raw_one_sigma_coverage": 0.19801673380849086,
+      "raw_two_sigma_coverage": 0.3786798884412767,
       "recommended_uncertainty_scale": 4.0,
-      "calibrated_one_sigma_coverage": 0.5508953817153629,
-      "calibrated_two_sigma_coverage": 0.7832233741753063,
-      "mean_abs_error": 0.4913685850164479,
-      "mean_predicted_std": 0.12572683903795717,
-      "mean_calibrated_std": 0.5029073561518287,
-      "mean_normalized_abs_error": 1.7477200043339902
+      "calibrated_one_sigma_coverage": 0.5943600867678959,
+      "calibrated_two_sigma_coverage": 0.8196467307096374,
+      "mean_abs_error": 0.4704025822770176,
+      "mean_predicted_std": 0.1325827202994739,
+      "mean_calibrated_std": 0.5303308811978956,
+      "mean_normalized_abs_error": 1.3906645097004957
     },
     "scaffold_split": {
       "target_one_sigma_coverage": 0.6826894921370859,
-      "raw_one_sigma_coverage": 0.16454502593116455,
-      "raw_two_sigma_coverage": 0.30787364450730786,
+      "raw_one_sigma_coverage": 0.1653250773993808,
+      "raw_two_sigma_coverage": 0.33126934984520123,
       "recommended_uncertainty_scale": 4.0,
-      "calibrated_one_sigma_coverage": 0.5256954266855257,
-      "calibrated_two_sigma_coverage": 0.7708628005657708,
-      "mean_abs_error": 0.5603218055938517,
-      "mean_predicted_std": 0.13975605224893767,
-      "mean_calibrated_std": 0.5590242089957507,
-      "mean_normalized_abs_error": 1.7206312090708669
+      "calibrated_one_sigma_coverage": 0.5498452012383901,
+      "calibrated_two_sigma_coverage": 0.7814241486068112,
+      "mean_abs_error": 0.5512701725289354,
+      "mean_predicted_std": 0.13809321512428333,
+      "mean_calibrated_std": 0.5523728604971333,
+      "mean_normalized_abs_error": 1.5515213201710083
     },
     "temporal_split": {
       "target_one_sigma_coverage": 0.6826894921370859,
-      "raw_one_sigma_coverage": 0.1853932584269663,
-      "raw_two_sigma_coverage": 0.3258426966292135,
+      "raw_one_sigma_coverage": 0.059484467944481166,
+      "raw_two_sigma_coverage": 0.11335095836087244,
       "recommended_uncertainty_scale": 4.0,
-      "calibrated_one_sigma_coverage": 0.5955056179775281,
-      "calibrated_two_sigma_coverage": 0.8314606741573034,
-      "mean_abs_error": 0.9102218680635926,
-      "mean_predicted_std": 0.2348563101828142,
-      "mean_calibrated_std": 0.9394252407312568,
-      "mean_normalized_abs_error": 1.1977521327208585
+      "calibrated_one_sigma_coverage": 0.24818241903502974,
+      "calibrated_two_sigma_coverage": 0.5601454064771976,
+      "mean_abs_error": 1.4480164465334717,
+      "mean_predicted_std": 0.20162555206220958,
+      "mean_calibrated_std": 0.8065022082488383,
+      "mean_normalized_abs_error": 2.6752471812864176
     }
   },
+  "temporal_split_config": {
+    "year_col": "temporal_year_max",
+    "year_min_col": "temporal_year_min",
+    "test_size": 0.2
+  },
   "temporal_split": {
-    "mae": 0.9102218680635926,
-    "rmse": 1.1542734865279254,
-    "r2": -0.1016866991270644,
-    "avg_uncertainty": 0.2348563101828142,
+    "mae": 1.4480164465334717,
+    "rmse": 1.696926725066737,
+    "r2": -1.0931397302759307,
+    "avg_uncertainty": 0.20162555206220958,
     "n_models": 3,
-    "year_col": "year_max",
-    "cutoff_year": 2004,
-    "dated_rows": 906,
-    "undated_rows": 9700,
-    "train_size": 728,
-    "test_size": 178
+    "strategy": "non_overlapping_year_ranges",
+    "year_col": "temporal_year_max",
+    "year_min_col": "temporal_year_min",
+    "source_col": null,
+    "cutoff_year": 2020,
+    "dated_rows": 15225,
+    "undated_rows": 908,
+    "excluded_spanning_rows": 483,
+    "source_imbalance": 0.0,
+    "train_source_counts": {},
+    "test_source_counts": {},
+    "train_size": 11716,
+    "test_size": 3026
   }
 }

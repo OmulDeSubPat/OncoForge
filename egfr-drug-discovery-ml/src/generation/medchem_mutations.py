@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable
 
 from rdkit import Chem, rdBase
 
+from src.generation.action_space_extensions import (
+    generate_fragment_growing_outcomes,
+    generate_linker_replacement_outcomes,
+    generate_scaffold_decoration_outcomes,
+)
 from src.generation.generator_policy import apply_generator_policy
 from src.generation.matched_molecular_transformations import generate_mmp_outcomes
 from src.generation.reaction_transformations import generate_reaction_outcomes
+from src.generation.transformation_memory import load_transformation_memory
+from src.structure.docking_rescoring import StructuralConsensusRescorer
 from src.utils.similarity import mol_from_smiles
 
 
@@ -48,6 +56,10 @@ class MutationOutcome:
     warhead_retained: bool = True
     alert_count: int = 0
     severe_alert_count: int = 0
+    structural_guidance_score: float = 0.0
+    structure_guidance_reference: str | None = None
+    structure_guidance_backend: str = "unavailable"
+    adaptive_action_prior: float = 0.50
 
 
 def canonicalize_mol(mol) -> str | None:
@@ -147,11 +159,126 @@ def _methylate_atom(mol, atom_idx: int) -> str | None:
     return canonicalize_mol(candidate)
 
 
-def generate_medchem_variants(smiles: str, max_variants: int = 100) -> list[str]:
-    return [outcome.smiles for outcome in generate_medchem_outcomes(smiles, max_variants=max_variants)]
+@lru_cache(maxsize=1)
+def _reference_guidance_rescorer() -> StructuralConsensusRescorer:
+    return StructuralConsensusRescorer(backend="reference")
 
 
-def generate_medchem_outcomes(smiles: str, max_variants: int = 100) -> list[MutationOutcome]:
+def _apply_structure_guidance(outcomes: Iterable[MutationOutcome], budget: int | None = None) -> list[MutationOutcome]:
+    rescorer = _reference_guidance_rescorer()
+    outcome_list = list(outcomes)
+    if not outcome_list or not rescorer.is_available():
+        return outcome_list
+
+    ranked = sorted(
+        outcome_list,
+        key=lambda item: (
+            float(item.synthetic_feasibility_score),
+            float(item.medchem_realism_score),
+            float(item.transformation_confidence),
+        ),
+        reverse=True,
+    )
+    guidance_budget = min(len(ranked), max(1, int(budget or 140)))
+    guidance_by_smiles: dict[str, tuple[float, str | None, str]] = {}
+    for outcome in ranked[:guidance_budget]:
+        payload = rescorer.score_smiles(outcome.smiles)
+        guidance_by_smiles[outcome.smiles] = (
+            float(payload.get("docking_rescore", 0.0)),
+            payload.get("closest_pose_reference"),
+            str(payload.get("docking_backend", "reference_ligand")),
+        )
+
+    enriched: list[MutationOutcome] = []
+    for outcome in outcome_list:
+        score, reference_name, backend = guidance_by_smiles.get(outcome.smiles, (0.0, None, "unavailable"))
+        enriched.append(
+            MutationOutcome(
+                action_name=outcome.action_name,
+                smiles=outcome.smiles,
+                category=outcome.category,
+                rule_source=outcome.rule_source,
+                reaction_family=outcome.reaction_family,
+                synthetic_route=outcome.synthetic_route,
+                synthetic_feasibility_score=outcome.synthetic_feasibility_score,
+                medchem_realism_score=outcome.medchem_realism_score,
+                transformation_confidence=outcome.transformation_confidence,
+                preserves_scaffold=outcome.preserves_scaffold,
+                parent_similarity=outcome.parent_similarity,
+                property_support_score=outcome.property_support_score,
+                category_priority_score=outcome.category_priority_score,
+                generator_priority_score=outcome.generator_priority_score,
+                hard_constraint_pass=outcome.hard_constraint_pass,
+                hard_constraint_notes=outcome.hard_constraint_notes,
+                introduced_warhead=outcome.introduced_warhead,
+                warhead_retained=outcome.warhead_retained,
+                alert_count=outcome.alert_count,
+                severe_alert_count=outcome.severe_alert_count,
+                structural_guidance_score=score,
+                structure_guidance_reference=reference_name,
+                structure_guidance_backend=backend,
+            )
+        )
+    return enriched
+
+
+def _apply_transformation_memory(outcomes: Iterable[MutationOutcome]) -> list[MutationOutcome]:
+    memory = load_transformation_memory()
+    enriched: list[MutationOutcome] = []
+    for outcome in outcomes:
+        adaptive_prior = memory.lookup(
+            action_name=outcome.action_name,
+            category=outcome.category,
+            reaction_family=outcome.reaction_family,
+            rule_source=outcome.rule_source,
+        )
+        enriched.append(
+            MutationOutcome(
+                action_name=outcome.action_name,
+                smiles=outcome.smiles,
+                category=outcome.category,
+                rule_source=outcome.rule_source,
+                reaction_family=outcome.reaction_family,
+                synthetic_route=outcome.synthetic_route,
+                synthetic_feasibility_score=outcome.synthetic_feasibility_score,
+                medchem_realism_score=outcome.medchem_realism_score,
+                transformation_confidence=outcome.transformation_confidence,
+                preserves_scaffold=outcome.preserves_scaffold,
+                parent_similarity=outcome.parent_similarity,
+                property_support_score=outcome.property_support_score,
+                category_priority_score=outcome.category_priority_score,
+                generator_priority_score=outcome.generator_priority_score,
+                hard_constraint_pass=outcome.hard_constraint_pass,
+                hard_constraint_notes=outcome.hard_constraint_notes,
+                introduced_warhead=outcome.introduced_warhead,
+                warhead_retained=outcome.warhead_retained,
+                alert_count=outcome.alert_count,
+                severe_alert_count=outcome.severe_alert_count,
+                structural_guidance_score=outcome.structural_guidance_score,
+                structure_guidance_reference=outcome.structure_guidance_reference,
+                structure_guidance_backend=outcome.structure_guidance_backend,
+                adaptive_action_prior=adaptive_prior,
+            )
+        )
+    return enriched
+
+
+def generate_medchem_variants(smiles: str, max_variants: int = 100, structure_guidance_budget: int | None = None) -> list[str]:
+    return [
+        outcome.smiles
+        for outcome in generate_medchem_outcomes(
+            smiles,
+            max_variants=max_variants,
+            structure_guidance_budget=structure_guidance_budget,
+        )
+    ]
+
+
+def generate_medchem_outcomes(
+    smiles: str,
+    max_variants: int = 100,
+    structure_guidance_budget: int | None = None,
+) -> list[MutationOutcome]:
     mol = mol_from_smiles(smiles)
     if mol is None:
         return []
@@ -194,17 +321,17 @@ def generate_medchem_outcomes(smiles: str, max_variants: int = 100) -> list[Muta
     for atom_idx in hetero_methylation_sites(mol):
         candidate = _methylate_atom(mol, atom_idx)
         if candidate is not None and candidate != smiles:
-                outcomes[candidate] = MutationOutcome(
-                    action_name="hetero_methylation",
-                    smiles=candidate,
-                    category="hetero_edit",
-                    rule_source="hetero_edit",
-                    reaction_family="n_or_o_alkylation",
-                    synthetic_route="heteroatom_methylation",
-                    synthetic_feasibility_score=0.86,
-                    medchem_realism_score=0.82,
-                    transformation_confidence=0.84,
-                )
+            outcomes[candidate] = MutationOutcome(
+                action_name="hetero_methylation",
+                smiles=candidate,
+                category="hetero_edit",
+                rule_source="hetero_edit",
+                reaction_family="n_or_o_alkylation",
+                synthetic_route="heteroatom_methylation",
+                synthetic_feasibility_score=0.86,
+                medchem_realism_score=0.82,
+                transformation_confidence=0.84,
+            )
 
     for outcome in generate_mmp_outcomes(smiles, max_variants=max_variants):
         if outcome.smiles != smiles:
@@ -236,5 +363,56 @@ def generate_medchem_outcomes(smiles: str, max_variants: int = 100) -> list[Muta
                 preserves_scaffold=outcome.preserves_scaffold,
             )
 
-    filtered = apply_generator_policy(smiles, outcomes.values(), max_variants=max_variants)
+    for outcome in generate_fragment_growing_outcomes(smiles, max_variants=max_variants):
+        if outcome.smiles != smiles:
+            outcomes[outcome.smiles] = MutationOutcome(
+                action_name=outcome.action_name,
+                smiles=outcome.smiles,
+                category=outcome.category,
+                rule_source=outcome.rule_source,
+                reaction_family=outcome.reaction_family,
+                synthetic_route=outcome.synthetic_route,
+                synthetic_feasibility_score=outcome.synthetic_feasibility_score,
+                medchem_realism_score=outcome.medchem_realism_score,
+                transformation_confidence=outcome.transformation_confidence,
+                preserves_scaffold=outcome.preserves_scaffold,
+            )
+
+    for outcome in generate_linker_replacement_outcomes(smiles, max_variants=max_variants):
+        if outcome.smiles != smiles:
+            outcomes[outcome.smiles] = MutationOutcome(
+                action_name=outcome.action_name,
+                smiles=outcome.smiles,
+                category=outcome.category,
+                rule_source=outcome.rule_source,
+                reaction_family=outcome.reaction_family,
+                synthetic_route=outcome.synthetic_route,
+                synthetic_feasibility_score=outcome.synthetic_feasibility_score,
+                medchem_realism_score=outcome.medchem_realism_score,
+                transformation_confidence=outcome.transformation_confidence,
+                preserves_scaffold=outcome.preserves_scaffold,
+            )
+
+    for outcome in generate_scaffold_decoration_outcomes(smiles, max_variants=max_variants):
+        if outcome.smiles != smiles:
+            outcomes[outcome.smiles] = MutationOutcome(
+                action_name=outcome.action_name,
+                smiles=outcome.smiles,
+                category=outcome.category,
+                rule_source=outcome.rule_source,
+                reaction_family=outcome.reaction_family,
+                synthetic_route=outcome.synthetic_route,
+                synthetic_feasibility_score=outcome.synthetic_feasibility_score,
+                medchem_realism_score=outcome.medchem_realism_score,
+                transformation_confidence=outcome.transformation_confidence,
+                preserves_scaffold=outcome.preserves_scaffold,
+            )
+
+    filtered = apply_generator_policy(
+        smiles,
+        _apply_transformation_memory(
+            _apply_structure_guidance(outcomes.values(), budget=structure_guidance_budget)
+        ),
+        max_variants=max_variants,
+    )
     return filtered[:max_variants]

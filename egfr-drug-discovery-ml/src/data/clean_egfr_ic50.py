@@ -12,6 +12,7 @@ from src.config import (
     KEEP_STANDARD_TYPE, KEEP_STANDARD_UNITS, KEEP_STANDARD_RELATION,
     IC50_NM_MIN, IC50_NM_MAX
 )
+from src.data.chembl_document_years import fetch_document_year_map
 from src.utils.chem import canonicalize_smiles, ic50_nm_to_pic50
 
 
@@ -36,13 +37,38 @@ def fetch_smiles_map(mol_ids: list[str], batch_size: int = 200, sleep_s: float =
     return out
 
 
+def _join_unique_non_missing(values: pd.Series) -> str | pd.NA:
+    items: list[str] = []
+    for value in values:
+        if pd.isna(value):
+            continue
+        text = str(value).strip()
+        if not text or text.lower() == "missing":
+            continue
+        items.append(text)
+    unique_items = sorted(set(items))
+    return ";".join(unique_items) if unique_items else pd.NA
+
+
+def _count_unique_non_missing(values: pd.Series) -> int:
+    unique_items: set[str] = set()
+    for value in values:
+        if pd.isna(value):
+            continue
+        text = str(value).strip()
+        if not text or text.lower() == "missing":
+            continue
+        unique_items.add(text)
+    return int(len(unique_items))
+
+
 def clean_raw_to_processed(raw_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns:
       - interim_df: measurement-level cleaned data
       - processed_df: molecule-level deduped data (median aggregation)
     """
-    df = pd.read_csv(raw_csv)
+    df = pd.read_csv(raw_csv, low_memory=False)
 
     # Basic schema sanity
     required_cols = {"molecule_chembl_id", "standard_type", "standard_units", "standard_relation", "standard_value"}
@@ -75,15 +101,46 @@ def clean_raw_to_processed(raw_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     df["pIC50"] = df["ic50_nm"].apply(ic50_nm_to_pic50)
     df = df[df["pIC50"].notna()].copy()
 
+    if "year" not in df.columns:
+        df["year"] = np.nan
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["year_source"] = pd.NA
+    df["year_confidence"] = np.nan
+
+    raw_year_mask = df["year"].notna()
+    df.loc[raw_year_mask, "year_source"] = "raw_year"
+    df.loc[raw_year_mask, "year_confidence"] = 1.0
+
+    if "document_chembl_id" in df.columns:
+        document_ids = df["document_chembl_id"].dropna().astype(str).tolist()
+        doc_year_map = fetch_document_year_map(document_ids) if document_ids else {}
+        if doc_year_map:
+            doc_years = pd.to_numeric(df["document_chembl_id"].map(doc_year_map), errors="coerce")
+            filled_mask = df["year"].isna() & doc_years.notna()
+            df.loc[filled_mask, "year"] = doc_years[filled_mask]
+            df.loc[filled_mask, "year_source"] = "document_chembl_id"
+            df.loc[filled_mask, "year_confidence"] = 0.95
+
+    df.loc[df["year"].notna() & df["year_source"].isna(), "year_source"] = "raw_year"
+    df.loc[df["year"].notna() & df["year_confidence"].isna(), "year_confidence"] = 1.0
+    df.loc[df["year"].isna() & df["year_source"].isna(), "year_source"] = "missing"
+    df["year_confidence"] = pd.to_numeric(df["year_confidence"], errors="coerce").fillna(0.0)
+
     interim_df = df.reset_index(drop=True)
 
     aggregation = {
         "ic50_nm_median": ("ic50_nm", "median"),
         "pIC50_median": ("pIC50", "median"),
         "n_measurements": ("pIC50", "size"),
+        "temporal_year_min": ("year", "min"),
+        "temporal_year_max": ("year", "max"),
+        "temporal_year_coverage_rate": ("year", lambda values: float(values.notna().mean())),
+        "temporal_year_source_count": ("year_source", _count_unique_non_missing),
+        "temporal_year_sources": ("year_source", _join_unique_non_missing),
+        "temporal_year_confidence_mean": ("year_confidence", "mean"),
     }
 
-    if "year" in interim_df.columns:
+    if "year" in interim_df.columns and interim_df["year"].notna().any():
         aggregation["year_min"] = ("year", "min")
         aggregation["year_max"] = ("year", "max")
 
@@ -94,9 +151,17 @@ def clean_raw_to_processed(raw_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
         .reset_index(drop=True)
     )
 
-    if "year_min" not in processed_df.columns:
-        processed_df["year_min"] = np.nan
-        processed_df["year_max"] = np.nan
+    for column in ["year_min", "year_max", "temporal_year_min", "temporal_year_max"]:
+        if column not in processed_df.columns:
+            processed_df[column] = np.nan
+    if "temporal_year_coverage_rate" not in processed_df.columns:
+        processed_df["temporal_year_coverage_rate"] = np.nan
+    if "temporal_year_source_count" not in processed_df.columns:
+        processed_df["temporal_year_source_count"] = 0
+    if "temporal_year_sources" not in processed_df.columns:
+        processed_df["temporal_year_sources"] = pd.NA
+    if "temporal_year_confidence_mean" not in processed_df.columns:
+        processed_df["temporal_year_confidence_mean"] = np.nan
 
     return interim_df, processed_df
 

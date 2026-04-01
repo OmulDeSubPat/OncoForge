@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
 from src.agents.multi_agent import add_structure_agent_ranking
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.feasibility.experimental_readiness import add_experimental_readiness
 from src.pipelines.artifact_utils import load_csv_artifact
@@ -82,8 +83,21 @@ def main():
         shortlist = add_experimental_readiness(shortlist, market_df=market)
         shortlist = add_structure_agent_ranking(shortlist)
         shortlist = add_evidence_arbiter_ranking(shortlist)
+        shortlist = add_structure_evidence_arbiter(shortlist)
 
-    if "evidence_arbiter_priority" in shortlist.columns:
+    if "structure_evidence_priority" in shortlist.columns:
+        shortlist = shortlist[shortlist["structure_evidence_status"] != "fail"].copy()
+        sort_cols = [
+            "structure_evidence_state_priority",
+            "structure_evidence_pareto_front_rank",
+            "structure_evidence_priority",
+            "evidence_arbiter_priority" if "evidence_arbiter_priority" in shortlist.columns else "predicted_pIC50",
+            "predicted_pIC50",
+            "max_market_similarity",
+        ]
+        ascending = [True, True, False, False, False, True]
+        shortlist = shortlist.sort_values(sort_cols, ascending=ascending).reset_index(drop=True)
+    elif "evidence_arbiter_priority" in shortlist.columns:
         shortlist = shortlist[shortlist["evidence_arbiter_status"] != "fail"].copy()
         sort_cols = [
             "evidence_arbiter_state_priority",
@@ -159,9 +173,19 @@ def main():
             fallback = add_experimental_readiness(fallback, market_df=market)
             fallback = add_structure_agent_ranking(fallback)
             fallback = add_evidence_arbiter_ranking(fallback)
+            fallback = add_structure_evidence_arbiter(fallback)
         sort_cols = ["final_score", "predicted_pIC50", "max_market_similarity"]
         ascending = [False, False, True]
-        if "evidence_arbiter_priority" in fallback.columns:
+        if "structure_evidence_priority" in fallback.columns:
+            sort_cols = [
+                "structure_evidence_state_priority",
+                "structure_evidence_pareto_front_rank",
+                "structure_evidence_priority",
+                "predicted_pIC50",
+                "max_market_similarity",
+            ]
+            ascending = [True, True, False, False, True]
+        elif "evidence_arbiter_priority" in fallback.columns:
             sort_cols = [
                 "evidence_arbiter_state_priority",
                 "evidence_arbiter_priority",

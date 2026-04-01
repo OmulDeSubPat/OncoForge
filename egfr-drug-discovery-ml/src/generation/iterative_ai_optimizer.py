@@ -9,6 +9,7 @@ from tqdm import tqdm
 from src.agents.multi_agent import build_default_scorer, score_smiles_list
 from src.config import PROJECT_ROOT
 from src.generation.generation_benchmark import summarize_generated_frame
+from src.generation.lineage_tracking import add_parent_child_tracking
 from src.generation.medchem_mutations import generate_medchem_outcomes
 from src.pipelines.artifact_utils import load_csv_artifact
 from src.utils.chem import canonicalize_smiles
@@ -63,8 +64,12 @@ def main(argv: list[str] | None = None):
     scorer = build_default_scorer()
 
     current_pool = select_seed_pool(ranked_df, top_k=int(args.seed_count))
+    current_pool["ancestor_seed"] = current_pool["smiles"]
+    current_pool["lineage_depth"] = 0
+    current_pool["lineage_path"] = current_pool["smiles"]
     all_generated = []
     seen = set(current_pool["smiles"].tolist())
+    attempted_candidates = 0
 
     n_rounds = int(args.rounds)
     beam_width = int(args.beam_width)
@@ -80,6 +85,10 @@ def main(argv: list[str] | None = None):
         for _, row in tqdm(current_pool.iterrows(), total=len(current_pool), desc=f"Round {round_idx} generation"):
             parent_smiles = row["smiles"]
             variants = generate_medchem_outcomes(parent_smiles, max_variants=variants_per_seed)
+            attempted_candidates += len(variants)
+            ancestor_seed = str(row.get("ancestor_seed", parent_smiles))
+            lineage_depth = int(row.get("lineage_depth", 0) or 0)
+            lineage_path = str(row.get("lineage_path", parent_smiles))
 
             for variant in variants:
                 canonical_smiles = canonicalize_smiles(variant.smiles)
@@ -90,6 +99,9 @@ def main(argv: list[str] | None = None):
                     {
                         "smiles": canonical_smiles,
                         "parent_seed": parent_smiles,
+                        "ancestor_seed": ancestor_seed,
+                        "lineage_depth": lineage_depth + 1,
+                        "lineage_path": f"{lineage_path} -> {canonical_smiles}",
                         "round": round_idx,
                         "action_name": variant.action_name,
                         "action_category": variant.category,
@@ -104,12 +116,16 @@ def main(argv: list[str] | None = None):
                         "property_support_score": variant.property_support_score,
                         "category_priority_score": variant.category_priority_score,
                         "generator_priority_score": variant.generator_priority_score,
+                        "adaptive_action_prior": variant.adaptive_action_prior,
                         "hard_constraint_pass": variant.hard_constraint_pass,
                         "hard_constraint_notes": variant.hard_constraint_notes,
                         "introduced_warhead": variant.introduced_warhead,
                         "warhead_retained": variant.warhead_retained,
                         "alert_count": variant.alert_count,
                         "severe_alert_count": variant.severe_alert_count,
+                        "structural_guidance_score": variant.structural_guidance_score,
+                        "structure_guidance_reference": variant.structure_guidance_reference,
+                        "structure_guidance_backend": variant.structure_guidance_backend,
                     }
                 )
 
@@ -120,11 +136,14 @@ def main(argv: list[str] | None = None):
         candidate_df = pd.DataFrame(candidate_pairs).drop_duplicates(subset=["smiles"]).reset_index(drop=True)
         cand_df = score_smiles_list(candidate_df["smiles"].tolist(), scorer=scorer)
         cand_df = cand_df.merge(candidate_df, on="smiles", how="left")
+        cand_df = add_parent_child_tracking(cand_df, parent_reference=ranked_df)
         cand_df["generator_composite_score"] = (
             _series(cand_df, "final_score")
             + 0.95 * _series(cand_df, "generator_priority_score")
+            + 0.22 * _series(cand_df, "adaptive_action_prior")
             + 0.25 * _series(cand_df, "parent_similarity")
             + 0.12 * _series(cand_df, "property_support_score")
+            + 0.24 * _series(cand_df, "structural_guidance_score")
             - 0.20 * _series(cand_df, "reward_hacking_risk")
         )
         cand_df = cand_df[
@@ -176,6 +195,7 @@ def main(argv: list[str] | None = None):
             "rounds": int(args.rounds),
             "beam_width": int(args.beam_width),
             "variants_per_seed": int(args.variants_per_seed),
+            "attempted_candidates": int(attempted_candidates),
         },
     )
 

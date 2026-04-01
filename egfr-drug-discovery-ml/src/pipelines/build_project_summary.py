@@ -19,6 +19,14 @@ def _load_json(path: Path) -> dict | None:
         return json.load(f)
 
 
+def _first_existing_csv(*paths: Path) -> pd.DataFrame | None:
+    for path in paths:
+        df = _load_csv(path)
+        if df is not None:
+            return df
+    return None
+
+
 def _format_top_table(df: pd.DataFrame | None, columns: list[str], n: int = 5) -> str:
     if df is None or df.empty:
         return "_Artifact missing or empty._"
@@ -52,18 +60,31 @@ def main():
         market_df = _load_csv(reports_dir / "marketed_egfr_scored.csv")
     diverse_df = _load_csv(reports_dir / "final_diverse_candidates.csv")
     shortlist_df = _load_csv(reports_dir / "market_comparable_novel_shortlist.csv")
-    feasibility_df = _load_csv(reports_dir / "iterative_ai_optimized_candidates_feasibility.csv")
-    readiness_df = _load_csv(reports_dir / "iterative_ai_optimized_candidates_readiness.csv")
-    crossdb_df = _load_csv(reports_dir / "iterative_ai_optimized_candidates_crossdb.csv")
+    feasibility_df = _first_existing_csv(
+        reports_dir / "iterative_ai_optimized_candidates_structural_feasibility.csv",
+        reports_dir / "iterative_ai_optimized_candidates_feasibility.csv",
+    )
+    readiness_df = _first_existing_csv(
+        reports_dir / "iterative_ai_optimized_candidates_readiness.csv",
+        reports_dir / "iterative_ai_optimized_candidates_structural_feasibility.csv",
+    )
+    crossdb_df = _first_existing_csv(
+        reports_dir / "iterative_ai_optimized_candidates_structural_crossdb.csv",
+        reports_dir / "iterative_ai_optimized_candidates_crossdb.csv",
+    )
     prospective_df = _load_csv(reports_dir / "prospective_validation_batch.csv")
     generated_summary = _load_json(reports_dir / "generated_analogs_ranked.summary.json") or {}
     ai_guided_summary = _load_json(reports_dir / "ai_guided_analogs.summary.json") or {}
     iterative_summary = _load_json(reports_dir / "iterative_ai_optimized_candidates.summary.json") or {}
+    generation_suite_df = _load_csv(reports_dir / "generation_benchmark_suite.csv")
+    ablation_df = _load_csv(reports_dir / "studii_ablatie" / "studii_ablatie.csv")
     rl_df = _load_csv(reports_dir / "rl_verifiable" / "rl_top_candidates.csv")
     rl_summary = _load_json(reports_dir / "rl_verifiable" / "rl_training_summary.json") or {}
     gpu_gnn_summary = _load_json(reports_dir / "gpu_gnn_performance_summary.json") or {}
     gpu_rl_df = _load_csv(reports_dir / "rl_gpu_dqn" / "gpu_rl_top_candidates.csv")
     gpu_rl_summary = _load_json(reports_dir / "rl_gpu_dqn" / "gpu_rl_training_summary.json") or {}
+    actor_critic_df = _load_csv(reports_dir / "rl_gpu_actor_critic" / "gpu_actor_critic_top_candidates.csv")
+    actor_critic_summary = _load_json(reports_dir / "rl_gpu_actor_critic" / "gpu_actor_critic_summary.json") or {}
     pubchem_summary = _load_json(PROJECT_ROOT / "data" / "processed" / "pubchem_egfr_reference.summary.json") or {}
     papyrus_summary = _load_json(PROJECT_ROOT / "data" / "processed" / "papyrus_egfr_reference.summary.json") or {}
     excape_summary = _load_json(PROJECT_ROOT / "data" / "processed" / "excape_egfr_reference.summary.json") or {}
@@ -176,15 +197,26 @@ def main():
         f"- PubChem virtual/proxy exposure rate: `{pubchem_summary.get('virtual_proxy_exposed_rate', 'n/a')}`",
         f"- Prospective validation batch size: `{notebook_metrics.get('prospective_batch_size', 'n/a')}`",
         f"- Prospective mean acquisition score: `{notebook_metrics.get('prospective_mean_acquisition_score', 'n/a')}`",
+        f"- Prospective mean structure-evidence support: `{notebook_metrics.get('prospective_mean_structure_evidence_support', 'n/a')}`",
         f"- Broad analog benchmark count / mean generator priority: `{generated_summary.get('n_candidates', 'n/a')}` / `{generated_summary.get('mean_generator_priority_score', 'n/a')}`",
+        f"- Broad analog mean adaptive prior: `{notebook_metrics.get('generated_mean_adaptive_action_prior', 'n/a')}`",
         f"- AI-guided benchmark count / mean generator priority: `{ai_guided_summary.get('n_candidates', 'n/a')}` / `{ai_guided_summary.get('mean_generator_priority_score', 'n/a')}`",
+        f"- AI-guided mean adaptive prior: `{notebook_metrics.get('ai_guided_mean_adaptive_action_prior', 'n/a')}`",
         f"- Iterative benchmark count / top mean final score: `{iterative_summary.get('n_candidates', 'n/a')}` / `{iterative_summary.get('top_mean_final_score', 'n/a')}`",
+        f"- Iterative mean adaptive prior: `{notebook_metrics.get('iterative_mean_adaptive_action_prior', 'n/a')}`",
+        f"- Generator suite artifact present: `{generation_suite_df is not None and not generation_suite_df.empty}`",
+        f"- Ablation suite artifact present: `{ablation_df is not None and not ablation_df.empty}`",
         f"- RL mean cross-database consensus: `{notebook_metrics.get('rl_mean_cross_database_consensus', 'n/a')}`",
         f"- RL mean external evidence support: `{notebook_metrics.get('rl_mean_external_evidence_support', 'n/a')}`",
+        f"- RL mean structure-evidence support: `{notebook_metrics.get('rl_mean_structure_evidence_support', 'n/a')}`",
         f"- RL ready rate: `{notebook_metrics.get('rl_readiness_ready_rate', 'n/a')}`",
         f"- GPU GNN scaffold snapshot: `{gpu_scaffold_line}`",
         f"- GPU RL mean external evidence support: `{notebook_metrics.get('gpu_rl_mean_external_evidence_support', 'n/a')}`",
+        f"- GPU RL mean structure-evidence support: `{notebook_metrics.get('gpu_rl_mean_structure_evidence_support', 'n/a')}`",
         f"- GPU RL best episode return: `{notebook_metrics.get('gpu_rl_best_episode_return', 'n/a')}`",
+        f"- GPU actor-critic mean external evidence support: `{notebook_metrics.get('gpu_actor_critic_mean_external_evidence_support', 'n/a')}`",
+        f"- GPU actor-critic mean structure-evidence support: `{notebook_metrics.get('gpu_actor_critic_mean_structure_evidence_support', 'n/a')}`",
+        f"- GPU actor-critic best episode return: `{notebook_metrics.get('gpu_actor_critic_best_episode_return', actor_critic_summary.get('best_episode_return', 'n/a'))}`",
         f"- Best repeated-seed scaffold model: `{robust_line}`",
         f"- Reward-hacking challenge snapshot: `{challenge_line}`",
         f"- Source holdout snapshot: `{source_holdout_line}`",
@@ -280,6 +312,12 @@ def main():
             ["smiles", "predicted_pIC50", "cross_database_consensus_score", "external_evidence_support", "evidence_arbiter_support", "gpu_rl_priority_score"],
         ),
         "",
+        "## GPU Actor-Critic Candidates",
+        _format_top_table(
+            actor_critic_df,
+            ["smiles", "predicted_pIC50", "cross_database_consensus_score", "external_evidence_support", "experimental_readiness_score", "actor_critic_priority_score"],
+        ),
+        "",
         "## Main Artifacts",
         "- `reports/model_performance_summary.json`",
         "- `reports/model_robustness_summary.csv`",
@@ -292,12 +330,15 @@ def main():
         "- `reports/generated_analogs_ranked.summary.json`",
         "- `reports/ai_guided_analogs.summary.json`",
         "- `reports/iterative_ai_optimized_candidates.summary.json`",
+        "- `reports/generation_benchmark_suite.csv`",
+        "- `reports/studii_ablatie/studii_ablatie.csv`",
+        "- `reports/studii_ablatie/rezumat_studii_ablatie.md`",
         "- `reports/generated_analogs_ranked_structural_crossdb.csv`",
+        "- `reports/ai_guided_analogs_structural_crossdb.csv`",
         "- `reports/iterative_ai_optimized_candidates.csv`",
-        "- `reports/iterative_ai_optimized_candidates_feasibility.csv`",
-        "- `reports/iterative_ai_optimized_candidates_readiness.csv`",
-        "- `reports/iterative_ai_optimized_candidates_crossdb.csv`",
-        "- `reports/iterative_ai_optimized_candidates_crossdb.summary.json`",
+        "- `reports/iterative_ai_optimized_candidates_structural_feasibility.csv`",
+        "- `reports/iterative_ai_optimized_candidates_structural_crossdb.csv`",
+        "- `reports/iterative_ai_optimized_candidates_structural_crossdb.summary.json`",
         "- `data/processed/pubchem_egfr_reference.csv`",
         "- `data/processed/papyrus_egfr_reference.csv`",
         "- `data/processed/papyrus_egfr_reference.summary.json`",
@@ -314,6 +355,8 @@ def main():
         "- `reports/rl_verifiable/rl_training_summary.json`",
         "- `reports/rl_gpu_dqn/gpu_rl_top_candidates.csv`",
         "- `reports/rl_gpu_dqn/gpu_rl_training_summary.json`",
+        "- `reports/rl_gpu_actor_critic/gpu_actor_critic_top_candidates.csv`",
+        "- `reports/rl_gpu_actor_critic/gpu_actor_critic_summary.json`",
         "- `reports/reward_hacking_challenge/reward_hacking_challenge_summary.csv`",
         "- `reports/source_holdout_benchmark.csv`",
         "- `reports/source_holdout_benchmark.json`",

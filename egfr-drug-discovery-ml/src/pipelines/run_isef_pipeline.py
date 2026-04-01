@@ -16,6 +16,7 @@ from src.data.fetch_iuphar_egfr import main as fetch_iuphar_egfr_main
 from src.data.fetch_papyrus_egfr import main as fetch_papyrus_egfr_main
 from src.data.fetch_pubchem_egfr import main as fetch_pubchem_egfr_main
 from src.data.merge_egfr_sources import main as merge_egfr_sources_main
+from src.evaluation.run_ablation_suite import main as run_ablation_suite_main
 from src.evaluation.run_cross_database_validation import main as run_cross_database_validation_main
 from src.evaluation.run_rediscovery_benchmark import main as run_rediscovery_benchmark_main
 from src.feasibility.assess_candidates import main as assess_candidates_main
@@ -24,12 +25,14 @@ from src.generation.analyze_optimization_trajectory import main as analyze_optim
 from src.generation.generate_ai_guided_analogs import main as generate_ai_guided_analogs_main
 from src.generation.generate_and_rank_analogs import main as generate_and_rank_analogs_main
 from src.generation.iterative_ai_optimizer import main as iterative_ai_optimizer_main
+from src.generation.run_generation_benchmark_suite import main as run_generation_benchmark_suite_main
 from src.generation.select_diverse_candidates import main as select_diverse_candidates_main
 from src.models.rank_dataset import main as rank_dataset_main
 from src.models.run_model_robustness_benchmark import main as run_model_robustness_benchmark_main
 from src.evaluation.run_source_holdout_benchmark import main as run_source_holdout_benchmark_main
 from src.models.train_multiview_ensemble import main as train_multiview_ensemble_main
 from src.pipelines.artifact_utils import load_csv_artifact
+from src.pipelines.bootstrap_reproducibility import main as bootstrap_reproducibility_main
 from src.pipelines.build_technical_notebook_assets import main as build_technical_notebook_assets_main
 from src.pipelines.build_buzzword_glossary_docx import main as build_buzzword_glossary_docx_main
 from src.pipelines.build_project_summary import main as build_project_summary_main
@@ -197,6 +200,24 @@ def main():
         help="Total grounded action budget exposed to the GPU DQN at each step.",
     )
     parser.add_argument(
+        "--gpu-actor-critic-episodes",
+        type=int,
+        default=320,
+        help="Episode count for the GPU actor-critic stage.",
+    )
+    parser.add_argument(
+        "--gpu-actor-critic-max-actions-per-family",
+        type=int,
+        default=4,
+        help="How many top grounded variants the GPU actor-critic keeps per medicinal-chemistry family.",
+    )
+    parser.add_argument(
+        "--gpu-actor-critic-max-actions-total",
+        type=int,
+        default=30,
+        help="Total grounded action budget exposed to the GPU actor-critic at each step.",
+    )
+    parser.add_argument(
         "--robustness-seeds",
         type=int,
         nargs="+",
@@ -259,12 +280,14 @@ def main():
     if args.notebook_only:
         _validate_ranked_dataset_if_present()
         _stage("Build Technical Notebook Assets", lambda: build_technical_notebook_assets_main([]))
-        _stage("Build Technical Notebook Word", build_technical_notebook_docx_main)
+        _stage("Build Technical Notebook Word", lambda: build_technical_notebook_docx_main([]))
         return
 
     if args.glossary_only:
-        _stage("Build Buzzword Glossary Word", build_buzzword_glossary_docx_main)
+        _stage("Build Buzzword Glossary Word", lambda: build_buzzword_glossary_docx_main([]))
         return
+
+    _stage("Bootstrap Reproducibility", lambda: bootstrap_reproducibility_main(["--emit-manifest"]))
 
     if args.refresh_clean or not processed_path.exists():
         _stage("Clean Data", clean_data_main)
@@ -437,6 +460,7 @@ def main():
             ]
         ),
     )
+    _stage("Run Generation Benchmark Suite", lambda: run_generation_benchmark_suite_main([]))
     _stage("Compare To Market", compare_candidates_to_market_main)
     _stage("Select Market-Comparable Novel Candidates", select_market_comparable_novel_main)
     _stage("Select Diverse Candidates", select_diverse_candidates_main)
@@ -504,11 +528,25 @@ def main():
             ],
             gpu_python,
         )
+        _run_external_stage(
+            "Train GPU Actor-Critic RL",
+            "src.rl.train_gpu_actor_critic",
+            [
+                "--episodes",
+                str(args.gpu_actor_critic_episodes),
+                "--max-actions-per-family",
+                str(args.gpu_actor_critic_max_actions_per_family),
+                "--max-actions-total",
+                str(args.gpu_actor_critic_max_actions_total),
+            ],
+            gpu_python,
+        )
     _stage("Analyze Optimization Trajectory", analyze_optimization_trajectory_main)
+    _stage("Run Ablation Suite", lambda: run_ablation_suite_main([]))
     _stage("Build Summary", build_project_summary_main)
     _stage("Build Technical Notebook Assets", lambda: build_technical_notebook_assets_main([]))
-    _stage("Build Technical Notebook Word", build_technical_notebook_docx_main)
-    _stage("Build Buzzword Glossary Word", build_buzzword_glossary_docx_main)
+    _stage("Build Technical Notebook Word", lambda: build_technical_notebook_docx_main([]))
+    _stage("Build Buzzword Glossary Word", lambda: build_buzzword_glossary_docx_main([]))
 
 
 if __name__ == "__main__":

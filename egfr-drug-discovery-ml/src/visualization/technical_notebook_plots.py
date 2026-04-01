@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 from sklearn.decomposition import PCA
 
 from src.config import PROJECT_ROOT
@@ -42,6 +43,14 @@ REQUIRED_RANKED_COLUMNS = [
 
 def _optional_csv(path: Path) -> pd.DataFrame | None:
     return pd.read_csv(path, low_memory=False) if path.exists() else None
+
+
+def _first_existing_csv(*paths: Path) -> pd.DataFrame | None:
+    for path in paths:
+        df = _optional_csv(path)
+        if df is not None:
+            return df
+    return None
 
 
 def _optional_json(path: Path) -> dict | None:
@@ -87,6 +96,170 @@ def _sample_frame(df: pd.DataFrame, limit: int) -> pd.DataFrame:
     if len(df) <= limit:
         return df.copy()
     return df.sample(limit, random_state=42).reset_index(drop=True)
+
+
+def _plot_pipeline_flowchart(out_dir: Path) -> None:
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    boxes = [
+        {
+            "xy": (0.03, 0.58),
+            "label": "Public EGFR data\nChEMBL, BindingDB,\nPapyrus, ExCAPE, PubChem",
+            "color": "#d8f3dc",
+        },
+        {
+            "xy": (0.22, 0.58),
+            "label": "Curation and features\nSMILES cleanup,\ndescriptors, ECFP",
+            "color": "#cfe8ff",
+        },
+        {
+            "xy": (0.41, 0.58),
+            "label": "Multiview QSAR\nrandom, scaffold,\ntemporal validation",
+            "color": "#dbe7c9",
+        },
+        {
+            "xy": (0.60, 0.58),
+            "label": "Candidate generation\nanalogs, iterative design,\nRL branches",
+            "color": "#fdecc8",
+        },
+        {
+            "xy": (0.79, 0.58),
+            "label": "Protected ranking\nmulti-agent scoring,\naudit, veto, novelty",
+            "color": "#ffd6cf",
+        },
+        {
+            "xy": (0.31, 0.15),
+            "label": "Orthogonal evidence\nstructural rescoring,\nexternal databases,\nfeasibility and readiness",
+            "color": "#f1d1ff",
+        },
+        {
+            "xy": (0.60, 0.15),
+            "label": "Decision output\nprospective batch,\nbenchmarks, notebook",
+            "color": "#ffe9a8",
+        },
+    ]
+
+    width = 0.15
+    height = 0.18
+    for box in boxes:
+        x, y = box["xy"]
+        patch = FancyBboxPatch(
+            (x, y),
+            width,
+            height,
+            boxstyle="round,pad=0.02,rounding_size=0.02",
+            linewidth=1.5,
+            edgecolor="#264653",
+            facecolor=box["color"],
+        )
+        ax.add_patch(patch)
+        ax.text(
+            x + width / 2,
+            y + height / 2,
+            box["label"],
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#1f2933",
+        )
+
+    arrows = [
+        ((0.18, 0.67), (0.22, 0.67)),
+        ((0.37, 0.67), (0.41, 0.67)),
+        ((0.56, 0.67), (0.60, 0.67)),
+        ((0.75, 0.67), (0.79, 0.67)),
+        ((0.865, 0.58), (0.67, 0.33)),
+        ((0.46, 0.58), (0.39, 0.33)),
+        ((0.48, 0.24), (0.60, 0.24)),
+    ]
+    for start, end in arrows:
+        ax.add_patch(
+            FancyArrowPatch(
+                start,
+                end,
+                arrowstyle="-|>",
+                mutation_scale=16,
+                linewidth=1.8,
+                color="#264653",
+                connectionstyle="arc3,rad=0.0",
+            )
+        )
+
+    ax.text(
+        0.5,
+        0.93,
+        "OncoForge pipeline from curated EGFR data to a prospective validation batch",
+        ha="center",
+        va="center",
+        fontsize=14,
+        fontweight="bold",
+        color="#1f2933",
+    )
+    ax.text(
+        0.5,
+        0.04,
+        "The main design idea is sequential narrowing: predict, generate, audit, validate, then hand off a smaller and safer shortlist.",
+        ha="center",
+        va="center",
+        fontsize=9,
+        color="#4a5568",
+    )
+    _save_figure(fig, out_dir / "pipeline_flowchart.png")
+
+
+def _plot_single_vs_multi_agent(ablation_df: pd.DataFrame | None, out_dir: Path) -> None:
+    if ablation_df is None or ablation_df.empty:
+        return
+
+    strategy_map = {
+        "naive_proxy": "Single-agent proxy",
+        "protected_final": "Protected multi-agent",
+    }
+    plot_df = ablation_df[ablation_df["strategy"].isin(strategy_map)].copy()
+    if plot_df.empty:
+        return
+
+    plot_df["strategy_label"] = plot_df["strategy"].map(strategy_map)
+    plot_df = plot_df.sort_values(["strategy_label", "top_k"]).reset_index(drop=True)
+    colors = {
+        "Single-agent proxy": "#e76f51",
+        "Protected multi-agent": "#2a9d8f",
+    }
+    metric_specs = [
+        ("mean_predicted_pIC50", "Mean predicted pIC50"),
+        ("mean_reward_hacking_risk", "Mean reward-hacking risk"),
+        ("audit_pass_rate", "Audit pass rate"),
+        ("review_or_fail_rate", "Review or fail rate"),
+    ]
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.5, 7.2), sharex=True)
+    for ax, (metric, title) in zip(axes.flatten(), metric_specs):
+        for strategy_label, color in colors.items():
+            subset = plot_df[plot_df["strategy_label"] == strategy_label]
+            if subset.empty or metric not in subset.columns:
+                continue
+            ax.plot(
+                subset["top_k"],
+                subset[metric],
+                marker="o",
+                linewidth=2.2,
+                markersize=5.5,
+                color=color,
+                label=strategy_label,
+            )
+        ax.set_title(title)
+        ax.grid(alpha=0.18)
+
+    axes[0, 0].set_ylabel("Value")
+    axes[1, 0].set_ylabel("Rate")
+    axes[1, 0].set_xlabel("Top-k shortlist size")
+    axes[1, 1].set_xlabel("Top-k shortlist size")
+    axes[0, 1].legend(frameon=False, loc="upper right")
+    fig.suptitle("Single-Agent Proxy Ranking vs Protected Multi-Agent Selection", fontsize=14)
+    _save_figure(fig, out_dir / "single_agent_vs_multi_agent.png")
 
 
 def _plot_risk_distribution(ranked: pd.DataFrame, out_dir: Path) -> None:
@@ -678,6 +851,7 @@ def _write_summary(
     structural_df: pd.DataFrame | None,
     feasibility_df: pd.DataFrame | None,
     readiness_df: pd.DataFrame | None,
+    crossdb_df: pd.DataFrame | None,
     prospective_df: pd.DataFrame | None,
     rl_df: pd.DataFrame | None,
     rl_summary: dict | None,
@@ -729,7 +903,6 @@ def _write_summary(
             summary["evidence_arbiter_mean_support"] = float(readiness_df["evidence_arbiter_support"].mean())
         if "evidence_arbiter_status" in readiness_df.columns:
             summary["evidence_arbiter_pass_rate"] = float((readiness_df["evidence_arbiter_status"] == "pass").mean())
-    crossdb_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_crossdb.csv")
     if crossdb_df is not None and not crossdb_df.empty:
         summary["cross_database_mean_consensus"] = float(crossdb_df["cross_database_consensus_score"].mean())
         summary["cross_database_strong_rate"] = float((crossdb_df["cross_database_status"] == "strong").mean())
@@ -746,6 +919,10 @@ def _write_summary(
             summary["prospective_mean_cross_database_consensus"] = float(prospective_df["cross_database_consensus_score"].mean())
         if "external_evidence_support" in prospective_df.columns:
             summary["prospective_mean_external_evidence"] = float(prospective_df["external_evidence_support"].mean())
+        if "structure_evidence_support" in prospective_df.columns:
+            summary["prospective_mean_structure_evidence_support"] = float(prospective_df["structure_evidence_support"].mean())
+        if "structure_evidence_pareto_is_front" in prospective_df.columns:
+            summary["prospective_pareto_front_rate"] = float(prospective_df["structure_evidence_pareto_is_front"].mean())
     if rl_df is not None and not rl_df.empty:
         summary["rl_top_mean_feasibility"] = float(rl_df["feasibility_score"].head(20).mean())
         summary["rl_top_mean_pic50"] = float(rl_df["predicted_pIC50"].head(20).mean())
@@ -753,22 +930,48 @@ def _write_summary(
             summary["rl_mean_cross_database_consensus"] = float(rl_df["cross_database_consensus_score"].head(20).mean())
         if "external_evidence_support" in rl_df.columns:
             summary["rl_mean_external_evidence_support"] = float(rl_df["external_evidence_support"].head(20).mean())
+        if "structure_evidence_support" in rl_df.columns:
+            summary["rl_mean_structure_evidence_support"] = float(rl_df["structure_evidence_support"].head(20).mean())
         if "experimental_readiness_status" in rl_df.columns:
             summary["rl_readiness_ready_rate"] = float((rl_df["experimental_readiness_status"].head(20) == "ready").mean())
     if rl_summary:
         summary["rl_best_episode_return"] = float(rl_summary.get("best_episode_return", 0.0))
-    generator_summaries = {
-        "generated": _optional_json(PROJECT_ROOT / "reports" / "generated_analogs_ranked.summary.json"),
-        "ai_guided": _optional_json(PROJECT_ROOT / "reports" / "ai_guided_analogs.summary.json"),
-        "iterative": _optional_json(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates.summary.json"),
-    }
-    for label, generator_summary in generator_summaries.items():
-        if not generator_summary:
-            continue
-        summary[f"{label}_candidate_count"] = int(generator_summary.get("n_candidates", 0))
-        summary[f"{label}_mean_generator_priority"] = float(generator_summary.get("mean_generator_priority_score", 0.0))
-        summary[f"{label}_top_mean_final_score"] = float(generator_summary.get("top_mean_final_score", 0.0))
-        summary[f"{label}_audit_pass_rate"] = float(generator_summary.get("audit_pass_rate", 0.0))
+    generator_suite = _optional_csv(PROJECT_ROOT / "reports" / "generation_benchmark_suite.csv")
+    if generator_suite is not None and not generator_suite.empty:
+        suite_map = {
+            "generated_analogs_ranked": "generated",
+            "ai_guided_analogs": "ai_guided",
+            "iterative_ai_optimized_candidates": "iterative",
+        }
+        for benchmark_name, label in suite_map.items():
+            rows = generator_suite[generator_suite["benchmark_name"] == benchmark_name]
+            if rows.empty:
+                continue
+            row = rows.iloc[0]
+            summary[f"{label}_candidate_count"] = int(row.get("n_candidates", 0))
+            summary[f"{label}_mean_generator_priority"] = float(row.get("mean_generator_priority_score", 0.0))
+            summary[f"{label}_mean_adaptive_action_prior"] = float(row.get("mean_adaptive_action_prior", 0.0))
+            summary[f"{label}_top_mean_final_score"] = float(row.get("top_mean_final_score", 0.0))
+            summary[f"{label}_audit_pass_rate"] = float(row.get("audit_pass_rate", 0.0))
+            summary[f"{label}_cross_database_pass_rate"] = float(row.get("cross_database_pass_rate", 0.0))
+            summary[f"{label}_external_evidence_pass_rate"] = float(row.get("external_evidence_pass_rate", 0.0))
+            summary[f"{label}_parent_improvement_rate_final_score"] = float(row.get("parent_improvement_rate_final_score", 0.0))
+            summary[f"{label}_internal_diversity"] = float(row.get("internal_diversity", 0.0))
+            summary[f"{label}_strong_transformation_memory_rate"] = float(row.get("strong_transformation_memory_rate", 0.0))
+    else:
+        generator_summaries = {
+            "generated": _optional_json(PROJECT_ROOT / "reports" / "generated_analogs_ranked.summary.json"),
+            "ai_guided": _optional_json(PROJECT_ROOT / "reports" / "ai_guided_analogs.summary.json"),
+            "iterative": _optional_json(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates.summary.json"),
+        }
+        for label, generator_summary in generator_summaries.items():
+            if not generator_summary:
+                continue
+            summary[f"{label}_candidate_count"] = int(generator_summary.get("n_candidates", 0))
+            summary[f"{label}_mean_generator_priority"] = float(generator_summary.get("mean_generator_priority_score", 0.0))
+            summary[f"{label}_mean_adaptive_action_prior"] = float(generator_summary.get("mean_adaptive_action_prior", 0.0))
+            summary[f"{label}_top_mean_final_score"] = float(generator_summary.get("top_mean_final_score", 0.0))
+            summary[f"{label}_audit_pass_rate"] = float(generator_summary.get("audit_pass_rate", 0.0))
     gpu_gnn_summary = _optional_json(PROJECT_ROOT / "reports" / "gpu_gnn_performance_summary.json")
     if gpu_gnn_summary:
         scaffold_rows = [row for row in gpu_gnn_summary.get("splits", []) if row.get("split") == "scaffold"]
@@ -786,8 +989,24 @@ def _write_summary(
             summary["gpu_rl_mean_external_evidence_support"] = float(gpu_rl_df["external_evidence_support"].head(20).mean())
         if "evidence_arbiter_support" in gpu_rl_df.columns:
             summary["gpu_rl_mean_evidence_arbiter_support"] = float(gpu_rl_df["evidence_arbiter_support"].head(20).mean())
+        if "structure_evidence_support" in gpu_rl_df.columns:
+            summary["gpu_rl_mean_structure_evidence_support"] = float(gpu_rl_df["structure_evidence_support"].head(20).mean())
     if gpu_rl_summary:
         summary["gpu_rl_best_episode_return"] = float(gpu_rl_summary.get("best_episode_return", 0.0))
+    actor_critic_df = _optional_csv(PROJECT_ROOT / "reports" / "rl_gpu_actor_critic" / "gpu_actor_critic_top_candidates.csv")
+    actor_critic_summary = _optional_json(PROJECT_ROOT / "reports" / "rl_gpu_actor_critic" / "gpu_actor_critic_summary.json")
+    if actor_critic_df is not None and not actor_critic_df.empty:
+        summary["gpu_actor_critic_mean_pic50"] = float(actor_critic_df["predicted_pIC50"].head(20).mean())
+        if "cross_database_consensus_score" in actor_critic_df.columns:
+            summary["gpu_actor_critic_mean_cross_database_consensus"] = float(actor_critic_df["cross_database_consensus_score"].head(20).mean())
+        if "external_evidence_support" in actor_critic_df.columns:
+            summary["gpu_actor_critic_mean_external_evidence_support"] = float(actor_critic_df["external_evidence_support"].head(20).mean())
+        if "experimental_readiness_status" in actor_critic_df.columns:
+            summary["gpu_actor_critic_ready_rate"] = float((actor_critic_df["experimental_readiness_status"].head(20) == "ready").mean())
+        if "structure_evidence_support" in actor_critic_df.columns:
+            summary["gpu_actor_critic_mean_structure_evidence_support"] = float(actor_critic_df["structure_evidence_support"].head(20).mean())
+    if actor_critic_summary:
+        summary["gpu_actor_critic_best_episode_return"] = float(actor_critic_summary.get("best_episode_return", 0.0))
     pubchem_summary = _optional_json(PROJECT_ROOT / "data" / "processed" / "pubchem_egfr_reference.summary.json")
     if pubchem_summary:
         summary["pubchem_mean_enriched_evidence_score"] = float(pubchem_summary.get("mean_enriched_evidence_score", 0.0))
@@ -878,13 +1097,22 @@ def _write_summary(
         f"- Prospective mean acquisition score: `{summary.get('prospective_mean_acquisition_score', float('nan')):.3f}`",
         f"- Prospective mean cross-database consensus: `{summary.get('prospective_mean_cross_database_consensus', float('nan')):.3f}`",
         f"- Prospective mean external evidence: `{summary.get('prospective_mean_external_evidence', float('nan')):.3f}`",
+        f"- Prospective mean structure-evidence support: `{summary.get('prospective_mean_structure_evidence_support', float('nan')):.3f}`",
+        f"- Prospective Pareto-front rate: `{summary.get('prospective_pareto_front_rate', float('nan')):.3f}`",
         f"- Broad analog count / mean generator priority: `{summary.get('generated_candidate_count', 0)}` / `{summary.get('generated_mean_generator_priority', float('nan')):.3f}`",
+        f"- Broad analog mean adaptive prior: `{summary.get('generated_mean_adaptive_action_prior', float('nan')):.3f}`",
+        f"- Broad analog cross-db pass / parent improvement: `{summary.get('generated_cross_database_pass_rate', float('nan')):.3f}` / `{summary.get('generated_parent_improvement_rate_final_score', float('nan')):.3f}`",
         f"- AI-guided count / mean generator priority: `{summary.get('ai_guided_candidate_count', 0)}` / `{summary.get('ai_guided_mean_generator_priority', float('nan')):.3f}`",
+        f"- AI-guided mean adaptive prior: `{summary.get('ai_guided_mean_adaptive_action_prior', float('nan')):.3f}`",
+        f"- AI-guided cross-db pass / parent improvement: `{summary.get('ai_guided_cross_database_pass_rate', float('nan')):.3f}` / `{summary.get('ai_guided_parent_improvement_rate_final_score', float('nan')):.3f}`",
         f"- Iterative count / mean generator priority: `{summary.get('iterative_candidate_count', 0)}` / `{summary.get('iterative_mean_generator_priority', float('nan')):.3f}`",
         f"- Iterative top mean final score: `{summary.get('iterative_top_mean_final_score', float('nan')):.3f}`",
+        f"- Iterative mean adaptive prior: `{summary.get('iterative_mean_adaptive_action_prior', float('nan')):.3f}`",
+        f"- Iterative cross-db pass / parent improvement: `{summary.get('iterative_cross_database_pass_rate', float('nan')):.3f}` / `{summary.get('iterative_parent_improvement_rate_final_score', float('nan')):.3f}`",
         f"- RL top mean feasibility: `{summary.get('rl_top_mean_feasibility', float('nan')):.3f}`",
         f"- RL mean cross-database consensus: `{summary.get('rl_mean_cross_database_consensus', float('nan')):.3f}`",
         f"- RL mean external evidence support: `{summary.get('rl_mean_external_evidence_support', float('nan')):.3f}`",
+        f"- RL mean structure-evidence support: `{summary.get('rl_mean_structure_evidence_support', float('nan')):.3f}`",
         f"- RL ready rate: `{summary.get('rl_readiness_ready_rate', float('nan')):.3f}`",
         f"- RL best episode return: `{summary.get('rl_best_episode_return', float('nan')):.3f}`",
         f"- GPU GNN best scaffold model: `{summary.get('gpu_gnn_best_scaffold_model', 'n/a')}`",
@@ -892,7 +1120,13 @@ def _write_summary(
         f"- GPU RL mean cross-database consensus: `{summary.get('gpu_rl_mean_cross_database_consensus', float('nan')):.3f}`",
         f"- GPU RL mean external evidence support: `{summary.get('gpu_rl_mean_external_evidence_support', float('nan')):.3f}`",
         f"- GPU RL mean evidence arbiter support: `{summary.get('gpu_rl_mean_evidence_arbiter_support', float('nan')):.3f}`",
+        f"- GPU RL mean structure-evidence support: `{summary.get('gpu_rl_mean_structure_evidence_support', float('nan')):.3f}`",
         f"- GPU RL best episode return: `{summary.get('gpu_rl_best_episode_return', float('nan')):.3f}`",
+        f"- GPU actor-critic mean cross-database consensus: `{summary.get('gpu_actor_critic_mean_cross_database_consensus', float('nan')):.3f}`",
+        f"- GPU actor-critic mean external evidence support: `{summary.get('gpu_actor_critic_mean_external_evidence_support', float('nan')):.3f}`",
+        f"- GPU actor-critic mean structure-evidence support: `{summary.get('gpu_actor_critic_mean_structure_evidence_support', float('nan')):.3f}`",
+        f"- GPU actor-critic ready rate: `{summary.get('gpu_actor_critic_ready_rate', float('nan')):.3f}`",
+        f"- GPU actor-critic best episode return: `{summary.get('gpu_actor_critic_best_episode_return', float('nan')):.3f}`",
         f"- Best robust scaffold model: `{summary.get('best_robust_model_family', 'n/a')}`",
         f"- Best robust scaffold RMSE: `{summary.get('best_robust_scaffold_rmse', float('nan')):.3f}` +/- `{summary.get('best_robust_scaffold_rmse_std', float('nan')):.3f}`",
         f"- Reward-hacking challenge trusted pass rate: `{summary.get('challenge_trusted_pass_rate', float('nan')):.3f}`",
@@ -1013,7 +1247,6 @@ def _write_summary(
             ]
         )
 
-    crossdb_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_crossdb.csv")
     if crossdb_df is not None and not crossdb_df.empty:
         lines.extend(
             [
@@ -1104,6 +1337,19 @@ def _write_summary(
             ]
         )
 
+    actor_critic_df = _optional_csv(PROJECT_ROOT / "reports" / "rl_gpu_actor_critic" / "gpu_actor_critic_top_candidates.csv")
+    if actor_critic_df is not None and not actor_critic_df.empty:
+        lines.extend(
+            [
+                "",
+                "## GPU Actor-Critic Snapshot",
+                _format_table(
+                    actor_critic_df,
+                    ["smiles", "predicted_pIC50", "cross_database_consensus_score", "external_evidence_support", "experimental_readiness_score", "actor_critic_priority_score"],
+                ),
+            ]
+        )
+
     (out_dir / "technical_notebook_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -1122,15 +1368,27 @@ def build_assets(ranked_path: Path | None = None, out_dir: Path | None = None) -
     generated_df = _optional_csv(PROJECT_ROOT / "reports" / "final_diverse_candidates.csv")
     shortlist_df = _optional_csv(PROJECT_ROOT / "reports" / "market_comparable_novel_shortlist.csv")
     structural_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_structural_rescored.csv")
-    feasibility_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_feasibility.csv")
-    readiness_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_readiness.csv")
-    crossdb_df = _optional_csv(PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_crossdb.csv")
+    feasibility_df = _first_existing_csv(
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_structural_feasibility.csv",
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_feasibility.csv",
+    )
+    readiness_df = _first_existing_csv(
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_readiness.csv",
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_structural_feasibility.csv",
+    )
+    crossdb_df = _first_existing_csv(
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_structural_crossdb.csv",
+        PROJECT_ROOT / "reports" / "iterative_ai_optimized_candidates_crossdb.csv",
+    )
     prospective_df = _optional_csv(PROJECT_ROOT / "reports" / "prospective_validation_batch.csv")
     rl_df = _optional_csv(PROJECT_ROOT / "reports" / "rl_verifiable" / "rl_top_candidates.csv")
     rl_summary = _optional_json(PROJECT_ROOT / "reports" / "rl_verifiable" / "rl_training_summary.json")
     gpu_gnn_df = _optional_csv(PROJECT_ROOT / "reports" / "gpu_gnn_benchmark.csv")
     pubchem_assay_catalog = _optional_csv(PROJECT_ROOT / "data" / "processed" / "pubchem_egfr_assay_catalog.csv")
+    ablation_df = _optional_csv(PROJECT_ROOT / "reports" / "multi_agent_ablation.csv")
 
+    _plot_pipeline_flowchart(output_dir)
+    _plot_single_vs_multi_agent(ablation_df, output_dir)
     _plot_risk_distribution(ranked, output_dir)
     _plot_naive_vs_verified(ranked, output_dir)
     _plot_rank_shift(ranked, output_dir)
@@ -1150,6 +1408,7 @@ def build_assets(ranked_path: Path | None = None, out_dir: Path | None = None) -
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "rl_verifiable" / "rl_reward_breakdown.png", output_dir / "rl_reward_breakdown.png")
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "rl_verifiable" / "rl_external_evidence_vs_priority.png", output_dir / "rl_external_evidence_vs_priority.png")
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "rl_gpu_dqn" / "gpu_rl_training_curve.png", output_dir / "gpu_rl_training_curve.png")
+    _copy_plot_if_exists(PROJECT_ROOT / "reports" / "rl_gpu_actor_critic" / "gpu_rl_training_curve.png", output_dir / "gpu_actor_critic_training_curve.png")
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "model_robustness_scaffold.png", output_dir / "model_robustness_scaffold.png")
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "reward_hacking_challenge" / "challenge_rank_shift.png", output_dir / "challenge_rank_shift.png")
     _copy_plot_if_exists(PROJECT_ROOT / "reports" / "reward_hacking_challenge" / "challenge_status_rates.png", output_dir / "challenge_status_rates.png")
@@ -1165,7 +1424,21 @@ def build_assets(ranked_path: Path | None = None, out_dir: Path | None = None) -
     _plot_structural_benchmark_boxplots(market_df, structural_df, generated_df, prospective_df, output_dir)
     _plot_generator_benchmark_overview(output_dir)
     _plot_chemical_space_snapshot(ranked, market_df, shortlist_df, output_dir)
-    _write_summary(ranked, market_df, generated_df, shortlist_df, model_summary, structural_df, feasibility_df, readiness_df, prospective_df, rl_df, rl_summary, output_dir)
+    _write_summary(
+        ranked,
+        market_df,
+        generated_df,
+        shortlist_df,
+        model_summary,
+        structural_df,
+        feasibility_df,
+        readiness_df,
+        crossdb_df,
+        prospective_df,
+        rl_df,
+        rl_summary,
+        output_dir,
+    )
 
     print(f"[OK] Saved technical notebook assets: {output_dir}")
 

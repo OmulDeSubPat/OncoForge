@@ -112,6 +112,8 @@ class FeasibilityAssessor:
         smiles: str,
         parent_smiles: str | None = None,
         action_name: str | None = None,
+        action_rule_source: str | None = None,
+        synthetic_route: str | None = None,
         synthetic_feasibility_score: float | None = None,
         medchem_realism_score: float | None = None,
         transformation_confidence: float | None = None,
@@ -179,7 +181,8 @@ class FeasibilityAssessor:
 
         active_support_score = _clip01((mean_top5_active_similarity - 0.30) / 0.50)
         scaffold_support_score = 1.0 if (scaffold_in_active_set or scaffold_in_marketed_set) else 0.0
-        traceability_score = 1.0 if action_name else 0.0
+        traceability_inputs = [action_name, action_rule_source, synthetic_route]
+        traceability_score = 1.0 if any(str(value).strip() for value in traceability_inputs if value is not None) else 0.0
         synthetic_ease_score = _clip01(1.0 - (sa / 6.5))
         route_synthetic_support = _clip01(0.60 if synthetic_feasibility_score is None else float(synthetic_feasibility_score))
         medchem_realism_support = _clip01(0.55 if medchem_realism_score is None else float(medchem_realism_score))
@@ -239,15 +242,50 @@ class FeasibilityAssessor:
         if interaction_key_support >= 0.25:
             evidence_bits.append("key_residue_contact")
 
+        hard_gate_reasons: list[str] = []
+        if severe_alert_count >= 1:
+            hard_gate_reasons.append("severe_alert")
+        if has_pains:
+            hard_gate_reasons.append("pains_alert")
+        if alert_count >= 4:
+            hard_gate_reasons.append("too_many_alerts")
+        if lipinski_violations >= 3:
+            hard_gate_reasons.append("excessive_lipinski_violations")
+        if sa >= 6.8:
+            hard_gate_reasons.append("synthetic_access_too_low")
+        if synthetic_ease_score < 0.12 and route_synthetic_support < 0.45:
+            hard_gate_reasons.append("weak_synthetic_route")
+        if parent_similarity is not None and float(parent_similarity) < 0.24:
+            hard_gate_reasons.append("parent_similarity_too_low")
+        if (
+            max_active_similarity < 0.32
+            and scaffold_support_score <= 0.0
+            and fragment_support_ratio < 0.30
+            and interaction_support < 0.28
+        ):
+            hard_gate_reasons.append("no_anchor_evidence")
+
+        hard_gate_pass = not hard_gate_reasons
+        pass_requirements = [
+            feasibility_score >= 0.68,
+            len(evidence_bits) >= 4,
+            synthetic_ease_score >= 0.22 or route_synthetic_support >= 0.65,
+            lipinski_violations <= 1,
+            (max_active_similarity >= 0.55 or scaffold_support_score > 0 or interaction_support >= 0.38),
+            alert_count <= 2,
+        ]
+
         feasibility_status = "pass"
-        if severe_alert_count >= 1 or has_pains or feasibility_score < 0.35:
+        if (not hard_gate_pass) or feasibility_score < 0.40:
             feasibility_status = "fail"
-        elif feasibility_score < 0.60 or len(evidence_bits) < 3:
+        elif not all(pass_requirements):
             feasibility_status = "review"
 
         return {
             "feasibility_score": feasibility_score,
             "feasibility_status": feasibility_status,
+            "feasibility_hard_gate_pass": bool(hard_gate_pass),
+            "feasibility_hard_gate_notes": ";".join(hard_gate_reasons) if hard_gate_reasons else None,
             "max_active_similarity": max_active_similarity,
             "mean_top5_active_similarity": mean_top5_active_similarity,
             "active_neighbor_count_055": active_neighbor_count,

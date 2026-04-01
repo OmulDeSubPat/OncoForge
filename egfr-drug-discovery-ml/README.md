@@ -78,6 +78,40 @@ python -m src.pipelines.run_isef_pipeline --glossary-only
 - `reports/OncoForge_Technical_Notebook.docx`
 - `reports/OncoForge_Buzzword_Glossary.docx`
 
+## Reproducibility
+
+- `python -m src.pipelines.bootstrap_reproducibility` initializes the standard history and benchmark skeletons in the project root.
+- `python -m src.pipelines.bootstrap_reproducibility --check-only` verifies that the expected reproducibility files are present.
+- `python -m unittest tests.test_reproducibility -v` checks the reproducibility helpers without requiring the full chemistry stack.
+
+Standard root artifacts are:
+
+- `valori_R2.csv`
+- `valori_RMSE.csv`
+- `valori_MAE.csv`
+- `valori_MSE.csv`
+- `valori_pIC50.csv`
+- `valori_IC50.csv`
+- `valori_Pearson.csv`
+- `valori_Spearman.csv`
+- `valori_Incertitudine.csv`
+- `istoric_metrici.csv`
+- `benchmark_studii.csv`
+- `comparatii_literatura.csv`
+
+## Project Structure
+
+- `src/data/` data ingestion, cleaning and source merging
+- `src/features/` featurization and descriptors
+- `src/models/` QSAR training and robustness checks
+- `src/generation/` molecule generation, ranking and lineage tracking
+- `src/feasibility/` synthetic feasibility and readiness scoring
+- `src/evaluation/` validation, ablation and benchmark scripts
+- `src/structure/` docking and structural rescoring
+- `src/rl/` verifiable RL and GPU RL experiments
+- `src/pipelines/` orchestration, summaries and reproducibility helpers
+- `reports/` generated analysis artifacts
+
 ## Project Positioning
 
 This project sits at the intersection of:

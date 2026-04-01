@@ -1,17 +1,26 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
 from src.agents.external_evidence_agent import add_external_evidence_agent_ranking
 from src.agents.multi_agent import add_structure_agent_ranking, build_default_scorer, score_smiles_list
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
+from src.data.clean_egfr_ic50 import clean_raw_to_processed
 from src.data.fetch_pubchem_egfr import ensure_pubchem_reference
 from src.evaluation.cross_database_validation import CrossDatabaseValidator
+from src.evaluation.temporal_split import temporal_split
 from src.feasibility.experimental_readiness import add_experimental_readiness
+from src.feasibility.assessor import FeasibilityAssessor
 from src.generation.analog_generator import generate_string_mutations
+from src.generation.generation_benchmark import summarize_generated_frame
 from src.generation.medchem_mutations import generate_medchem_outcomes
+from src.generation.run_generation_benchmark_suite import _backfill_missing_generation_metadata
 from src.knowledge import BUZZWORD_ENTRIES
 from src.generation.rgroup_generator import generate_rgroup_variants
 from src.rl.environment import VerifiableMoleculeEnv
@@ -138,6 +147,80 @@ class OncoForgeSmokeTests(unittest.TestCase):
         for key in ["structure_agent_support", "structure_augmented_score", "structure_agent_status", "structure_rank"]:
             self.assertIn(key, ranked.columns)
 
+    def test_structure_evidence_arbiter_adds_structure_metrics(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "smiles": "OCCNc1cc2ncnc(Nc3cccc(Br)c3)c2cn1",
+                    "predicted_pIC50": 8.9,
+                    "final_score": 10.2,
+                    "docking_rescore": 0.71,
+                    "interaction_support_score": 0.66,
+                    "market_novelty_score": 0.43,
+                    "max_market_similarity": 0.29,
+                    "cross_database_consensus_score": 0.61,
+                    "external_evidence_support": 0.58,
+                    "evidence_arbiter_support": 0.55,
+                    "experimental_readiness_score": 0.64,
+                    "feasibility_score": 0.82,
+                    "reward_hacking_risk": 0.12,
+                    "audit_status": "pass",
+                    "veto": False,
+                    "uncertainty": 0.12,
+                }
+            ]
+        )
+        enriched = add_structure_evidence_arbiter(df)
+        for key in [
+            "structure_evidence_support",
+            "structure_evidence_guardrail",
+            "structure_evidence_status",
+            "structure_evidence_priority",
+        ]:
+            self.assertIn(key, enriched.columns)
+
+    def test_generation_metadata_backfill_restores_missing_adaptive_prior(self):
+        target = pd.DataFrame(
+            [
+                {
+                    "smiles": "OCCNc1cc2ncnc(Nc3cccc(Br)c3)c2cn1",
+                    "generator_priority_score": 0.88,
+                }
+            ]
+        )
+        source = pd.DataFrame(
+            [
+                {
+                    "smiles": "OCCNc1cc2ncnc(Nc3cccc(Br)c3)c2cn1",
+                    "generator_priority_score": 0.42,
+                    "adaptive_action_prior": 0.73,
+                    "structural_guidance_score": 0.61,
+                }
+            ]
+        )
+        enriched = _backfill_missing_generation_metadata(target, source)
+        self.assertIn("adaptive_action_prior", enriched.columns)
+        self.assertIn("structural_guidance_score", enriched.columns)
+        self.assertAlmostEqual(float(enriched.loc[0, "generator_priority_score"]), 0.88)
+        self.assertAlmostEqual(float(enriched.loc[0, "adaptive_action_prior"]), 0.73)
+
+    def test_generation_benchmark_uses_parent_adaptive_prior_fallback(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "smiles": "OCCNc1cc2ncnc(Nc3cccc(Br)c3)c2cn1",
+                    "parent_adaptive_action_prior": 0.71,
+                    "final_score": 10.2,
+                }
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "summary.json"
+            summary = summarize_generated_frame(df, "smoke_generation_benchmark", out_path)
+        self.assertAlmostEqual(summary["mean_adaptive_action_prior"], 0.71)
+        self.assertAlmostEqual(summary["top_mean_adaptive_action_prior"], 0.71)
+        self.assertAlmostEqual(summary["strong_transformation_memory_rate"], 1.0)
+
     def test_experimental_readiness_adds_readiness_fields(self):
         df = pd.DataFrame(
             [
@@ -196,6 +279,83 @@ class OncoForgeSmokeTests(unittest.TestCase):
             "virtual_proxy_fraction",
         ]:
             self.assertIn(key, df.columns)
+
+    def test_feasibility_assessor_accepts_traceability_metadata_without_action_name(self):
+        assessor = FeasibilityAssessor()
+        result = assessor.assess(
+            "OCCNc1cc2ncnc(Nc3cccc(Br)c3)c2cn1",
+            action_rule_source="reaction_transform",
+            synthetic_route="snar_heteroaryl_halide",
+        )
+        self.assertGreaterEqual(float(result["traceability_score"]), 1.0)
+
+    def test_clean_raw_to_processed_backfills_chembl_year_from_document_id(self):
+        raw_frame = pd.DataFrame(
+            [
+                {
+                    "molecule_chembl_id": "CHEMBL_TEST_1",
+                    "standard_type": "IC50",
+                    "standard_units": "nM",
+                    "standard_relation": "=",
+                    "standard_value": 125.0,
+                    "document_chembl_id": "CHEMBL_DOC_TEST_1",
+                    "year": pd.NA,
+                }
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = Path(tmpdir) / "chembl_raw.csv"
+            raw_frame.to_csv(raw_path, index=False)
+            with patch("src.data.clean_egfr_ic50.fetch_smiles_map", return_value={"CHEMBL_TEST_1": "CCO"}), patch(
+                "src.data.clean_egfr_ic50.fetch_document_year_map",
+                return_value={"CHEMBL_DOC_TEST_1": 2011},
+            ):
+                interim_df, processed_df = clean_raw_to_processed(raw_path)
+
+        self.assertEqual(int(interim_df.loc[0, "year"]), 2011)
+        self.assertEqual(interim_df.loc[0, "year_source"], "document_chembl_id")
+        self.assertGreaterEqual(float(interim_df.loc[0, "year_confidence"]), 0.9)
+        for key in [
+            "temporal_year_min",
+            "temporal_year_max",
+            "temporal_year_coverage_rate",
+            "temporal_year_source_count",
+            "temporal_year_sources",
+            "temporal_year_confidence_mean",
+        ]:
+            self.assertIn(key, processed_df.columns)
+
+    def test_temporal_split_logs_source_composition_for_year_ranges(self):
+        df = pd.DataFrame(
+            [
+                {"smiles_canonical": "A", "pIC50_median": 7.0, "year_min": 2010, "year_max": 2010, "source_dataset": "chembl"},
+                {"smiles_canonical": "B", "pIC50_median": 7.1, "year_min": 2011, "year_max": 2011, "source_dataset": "chembl"},
+                {"smiles_canonical": "C", "pIC50_median": 7.2, "year_min": 2012, "year_max": 2015, "source_dataset": "papyrus"},
+                {"smiles_canonical": "D", "pIC50_median": 7.3, "year_min": 2015, "year_max": 2015, "source_dataset": "papyrus"},
+                {"smiles_canonical": "E", "pIC50_median": 7.4, "year_min": 2016, "year_max": 2016, "source_dataset": "bindingdb_articles"},
+                {"smiles_canonical": "F", "pIC50_median": 7.5, "year_min": 2017, "year_max": 2017, "source_dataset": "bindingdb_articles"},
+            ]
+        )
+
+        train_df, test_df, metadata = temporal_split(
+            df,
+            year_col="year_max",
+            year_min_col="year_min",
+            test_size=0.5,
+            min_rows=4,
+            min_train_rows=2,
+            min_test_rows=2,
+            source_col="source_dataset",
+        )
+
+        self.assertEqual(metadata["strategy"], "non_overlapping_year_ranges")
+        self.assertEqual(metadata["source_col"], "source_dataset")
+        self.assertIn("train_source_counts", metadata)
+        self.assertIn("test_source_counts", metadata)
+        self.assertEqual(metadata["excluded_spanning_rows"], 1)
+        self.assertEqual(len(train_df), 2)
+        self.assertEqual(len(test_df), 3)
 
     def test_external_evidence_agent_adds_fields(self):
         df = pd.DataFrame(

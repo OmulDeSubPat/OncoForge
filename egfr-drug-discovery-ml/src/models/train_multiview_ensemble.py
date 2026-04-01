@@ -17,6 +17,7 @@ from src.evaluation.scaffold_split import scaffold_split
 from src.evaluation.temporal_split import temporal_split
 from src.features.descriptor_features import DESCRIPTOR_NAMES, descriptor_vector_from_smiles
 from src.features.featurize_ecfp import ecfp_from_smiles
+from src.pipelines.reproducibility import write_metric_snapshot
 
 
 def metrics_dict(y_true: np.ndarray, pred: np.ndarray) -> dict[str, float]:
@@ -36,6 +37,57 @@ def build_features(df: pd.DataFrame, smiles_col: str) -> dict[str, np.ndarray]:
         "descriptors": descriptors,
         "hybrid": hybrid,
     }
+
+
+def _select_temporal_split_config(df: pd.DataFrame) -> dict[str, object]:
+    year_col = "temporal_year_max" if "temporal_year_max" in df.columns else "year_max"
+    year_min_col = "temporal_year_min" if "temporal_year_min" in df.columns else "year_min"
+    config: dict[str, object] = {
+        "year_col": year_col,
+        "year_min_col": year_min_col,
+        "test_size": 0.2,
+    }
+    if "source_dataset" in df.columns:
+        config["source_col"] = "source_dataset"
+    elif "source_datasets" in df.columns:
+        config["source_col"] = "source_datasets"
+    return config
+
+
+def _snapshot_payload(metrics: dict[str, object] | None) -> dict[str, float]:
+    if not metrics:
+        return {}
+    payload: dict[str, float] = {}
+    for metric_name, source_key in {
+        "R2": "r2",
+        "RMSE": "rmse",
+        "MAE": "mae",
+        "Incertitudine": "avg_uncertainty",
+    }.items():
+        value = metrics.get(source_key)
+        if value is None:
+            continue
+        payload[metric_name] = float(value)
+    return payload
+
+
+def _write_split_snapshot(
+    *,
+    split_name: str,
+    metrics: dict[str, object] | None,
+    dataset_name: str,
+    observations: str,
+) -> None:
+    snapshot = _snapshot_payload(metrics)
+    if not snapshot:
+        return
+    write_metric_snapshot(
+        metrics=snapshot,
+        version="multiview_ensemble",
+        experiment_name=f"train_multiview_ensemble_{dataset_name}",
+        split=split_name,
+        observations=observations,
+    )
 
 
 def make_model_bundles():
@@ -117,6 +169,7 @@ def evaluate_ensemble(
 
 def main() -> None:
     data_path = resolve_preferred_processed_dataset()
+    dataset_name = dataset_label_from_path(data_path)
     df = pd.read_csv(data_path, low_memory=False).reset_index(drop=True)
     df["_row_id"] = np.arange(len(df))
 
@@ -159,10 +212,12 @@ def main() -> None:
     )
 
     temporal_metrics: dict[str, object] | None = None
-    temporal_metadata: dict[str, int | float | str] | None = None
+    temporal_metadata: dict[str, object] | None = None
     temporal_calibration: dict[str, float] | None = None
     try:
-        temporal_train_df, temporal_test_df, temporal_metadata = temporal_split(df, year_col="year_max", test_size=0.2)
+        temporal_split_kwargs = _select_temporal_split_config(df)
+        print("[INFO] Temporal split config:", temporal_split_kwargs)
+        temporal_train_df, temporal_test_df, temporal_metadata = temporal_split(df, **temporal_split_kwargs)
         bundles_for_temporal = make_model_bundles()
         temporal_metrics = evaluate_ensemble(
             bundles_for_temporal,
@@ -177,6 +232,10 @@ def main() -> None:
             temporal_metrics["pred_std"],
         )
         print("[INFO] Temporal split multiview ensemble:", {k: v for k, v in temporal_metrics.items() if k not in {"pred_mean", "pred_std"}})
+        print("[INFO] Temporal split metadata:", temporal_metadata)
+        if temporal_metadata is not None:
+            print("[INFO] Temporal train source counts:", temporal_metadata.get("train_source_counts", {}))
+            print("[INFO] Temporal test source counts:", temporal_metadata.get("test_source_counts", {}))
     except ValueError as exc:
         print(f"[WARN] Temporal split skipped: {exc}")
 
@@ -203,7 +262,7 @@ def main() -> None:
             for bundle in final_bundles
         ],
         "uncertainty_scale": uncertainty_scale,
-        "dataset_name": dataset_label_from_path(data_path),
+        "dataset_name": dataset_name,
         "dataset_path": str(data_path),
         "descriptor_names": DESCRIPTOR_NAMES,
     }
@@ -217,6 +276,7 @@ def main() -> None:
         json.dumps(
             {
                 "dataset_name": dataset_label_from_path(data_path),
+                "dataset_name": dataset_name,
                 "dataset_path": str(data_path),
                 "descriptor_names": DESCRIPTOR_NAMES,
                 "models": [
@@ -242,7 +302,7 @@ def main() -> None:
     metrics_path = reports_dir / "model_performance_summary.json"
     metrics = {
         "dataset_size": int(len(df)),
-        "dataset_name": dataset_label_from_path(data_path),
+        "dataset_name": dataset_name,
         "dataset_path": str(data_path),
         "smiles_column": smiles_col,
         "target_column": y_col,
@@ -266,6 +326,7 @@ def main() -> None:
             "scaffold_split": scaffold_calibration,
             "temporal_split": temporal_calibration,
         },
+        "temporal_split_config": _select_temporal_split_config(df),
     }
     if temporal_metrics is not None and temporal_metadata is not None:
         metrics["temporal_split"] = {
@@ -273,6 +334,40 @@ def main() -> None:
             **temporal_metadata,
         }
     metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+
+    _write_split_snapshot(
+        split_name="random",
+        metrics=random_metrics,
+        dataset_name=dataset_name,
+        observations=(
+            f"dataset={dataset_name}; train_size={len(random_train_df)}; "
+            f"test_size={len(random_test_df)}"
+        ),
+    )
+    _write_split_snapshot(
+        split_name="scaffold",
+        metrics=scaffold_metrics,
+        dataset_name=dataset_name,
+        observations=(
+            f"dataset={dataset_name}; train_size={len(scaffold_train_df)}; "
+            f"test_size={len(scaffold_test_df)}"
+        ),
+    )
+    if temporal_metrics is not None:
+        temporal_observations = [
+            f"dataset={dataset_name}",
+            f"strategy={(temporal_metadata or {}).get('strategy', 'n/a')}",
+            f"cutoff_year={(temporal_metadata or {}).get('cutoff_year', 'n/a')}",
+            f"train_size={(temporal_metadata or {}).get('train_size', 'n/a')}",
+            f"test_size={(temporal_metadata or {}).get('test_size', 'n/a')}",
+            f"source_imbalance={(temporal_metadata or {}).get('source_imbalance', 'n/a')}",
+        ]
+        _write_split_snapshot(
+            split_name="temporal",
+            metrics=temporal_metrics,
+            dataset_name=dataset_name,
+            observations="; ".join(temporal_observations),
+        )
 
     print(f"[OK] Saved multiview model: {model_path}")
     print(f"[OK] Saved multiview metadata: {metadata_path}")

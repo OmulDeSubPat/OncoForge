@@ -9,9 +9,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
 from src.agents.external_evidence_agent import add_external_evidence_agent_ranking
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.evaluation.cross_database_validation import CrossDatabaseValidator
+from src.feasibility.experimental_readiness import add_experimental_readiness, load_market_benchmark
 
 
 def _resolve_path(path_str: str) -> Path:
@@ -102,10 +105,49 @@ def main(argv: list[str] | None = None) -> None:
     validator = CrossDatabaseValidator()
     out = validator.validate_frame(df)
     out = add_external_evidence_agent_ranking(out)
-    out = out.sort_values(
-        ["external_evidence_priority" if "external_evidence_priority" in out.columns else "cross_database_priority", "cross_database_consensus_score", "predicted_pIC50"],
-        ascending=[False, False, False],
-    ).reset_index(drop=True)
+    if "experimental_readiness_score" not in out.columns and "feasibility_score" in out.columns:
+        out = add_experimental_readiness(
+            out,
+            market_df=load_market_benchmark(),
+            sort_output=False,
+        )
+    if "experimental_readiness_score" in out.columns:
+        out = add_evidence_arbiter_ranking(out)
+        out = add_structure_evidence_arbiter(out)
+    sort_columns = [
+        "structure_evidence_priority"
+        if "structure_evidence_priority" in out.columns
+        else (
+            "evidence_arbiter_priority"
+            if "evidence_arbiter_priority" in out.columns
+            else (
+                "external_evidence_priority"
+                if "external_evidence_priority" in out.columns
+                else "cross_database_priority"
+            )
+        ),
+        "cross_database_consensus_score",
+        "predicted_pIC50",
+    ]
+    ascending = [False, False, False]
+    if "structure_evidence_state_priority" in out.columns:
+        sort_columns = [
+            "structure_evidence_state_priority",
+            "structure_evidence_pareto_front_rank",
+            "structure_evidence_priority",
+            "cross_database_consensus_score",
+            "predicted_pIC50",
+        ]
+        ascending = [True, True, False, False, False]
+    elif "evidence_arbiter_state_priority" in out.columns:
+        sort_columns = [
+            "evidence_arbiter_state_priority",
+            "evidence_arbiter_priority",
+            "cross_database_consensus_score",
+            "predicted_pIC50",
+        ]
+        ascending = [True, False, False, False]
+    out = out.sort_values(sort_columns, ascending=ascending).reset_index(drop=True)
     out["cross_database_rank"] = out.index + 1
 
     out_path = _resolve_path(args.out)
@@ -123,6 +165,8 @@ def main(argv: list[str] | None = None) -> None:
         "weak_rate": float((out["cross_database_status"] == "weak").mean()) if not out.empty else 0.0,
         "mean_external_evidence_support": float(out["external_evidence_support"].mean()) if "external_evidence_support" in out.columns and not out.empty else 0.0,
         "external_evidence_pass_rate": float((out["external_evidence_status"] == "pass").mean()) if "external_evidence_status" in out.columns and not out.empty else 0.0,
+        "mean_evidence_arbiter_support": float(out["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in out.columns and not out.empty else 0.0,
+        "mean_structure_evidence_support": float(out["structure_evidence_support"].mean()) if "structure_evidence_support" in out.columns and not out.empty else 0.0,
     }
     summary_path = out_path.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

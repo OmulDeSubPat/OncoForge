@@ -26,6 +26,9 @@ CATEGORY_PRIORITY = {
     "alkylation": 0.83,
     "functional_group_swap": 0.80,
     "mmp": 0.86,
+    "fragment_growing": 0.88,
+    "linker_replacement": 0.85,
+    "scaffold_decoration": 0.90,
     "atom_swap": 0.72,
     "hetero_edit": 0.78,
     "append_group": 0.58,
@@ -34,6 +37,9 @@ CATEGORY_PRIORITY = {
 RULE_SOURCE_PRIORITY = {
     "reaction_transform": 0.90,
     "matched_molecular_pair": 0.86,
+    "fragment_growing": 0.84,
+    "linker_replacement": 0.83,
+    "scaffold_decoration": 0.88,
     "hetero_edit": 0.76,
     "atom_edit": 0.72,
     "append_group": 0.56,
@@ -55,6 +61,8 @@ class GeneratorCandidateAssessment:
     warhead_retained: bool
     alert_count: int
     severe_alert_count: int
+    structural_guidance_score: float
+    adaptive_action_prior: float
 
 
 def _clip01(value: float) -> float:
@@ -90,6 +98,8 @@ def assess_generator_candidate(parent_smiles: str, outcome: MutationOutcome) -> 
             warhead_retained=False,
             alert_count=0,
             severe_alert_count=0,
+            structural_guidance_score=0.0,
+            adaptive_action_prior=0.50,
         )
 
     candidate_fp = morgan_fp(mol=mol)
@@ -111,6 +121,8 @@ def assess_generator_candidate(parent_smiles: str, outcome: MutationOutcome) -> 
     qed = float(QED.qed(mol))
     sa = float(simple_sa_score(outcome.smiles) or 10.0)
     lipinski_violations = int(mw > 500) + int(logp > 5) + int(hbd > 5) + int(hba > 10)
+    structural_guidance_score = _clip01(float(getattr(outcome, "structural_guidance_score", 0.0) or 0.0))
+    adaptive_action_prior = _clip01(float(getattr(outcome, "adaptive_action_prior", 0.50) or 0.50))
 
     has_pains, _ = pains_alert(outcome.smiles)
     alerts = structural_alerts(outcome.smiles)
@@ -134,18 +146,22 @@ def assess_generator_candidate(parent_smiles: str, outcome: MutationOutcome) -> 
 
     category_priority = 0.65 * CATEGORY_PRIORITY.get(outcome.category, 0.66) + 0.35 * RULE_SOURCE_PRIORITY.get(outcome.rule_source, 0.66)
     realism_score = (
-        0.33 * _clip01(float(outcome.synthetic_feasibility_score))
-        + 0.27 * _clip01(float(outcome.medchem_realism_score))
-        + 0.20 * _clip01(float(outcome.transformation_confidence))
+        0.30 * _clip01(float(outcome.synthetic_feasibility_score))
+        + 0.25 * _clip01(float(outcome.medchem_realism_score))
+        + 0.18 * _clip01(float(outcome.transformation_confidence))
         + 0.12 * parent_similarity
         + 0.08 * float(preserves_scaffold)
+        + 0.07 * structural_guidance_score
+        + 0.05 * adaptive_action_prior
     )
 
     generator_priority = (
-        0.34 * realism_score
-        + 0.30 * property_support
+        0.32 * realism_score
+        + 0.27 * property_support
         + 0.14 * category_priority
-        + 0.12 * parent_similarity
+        + 0.10 * parent_similarity
+        + 0.11 * structural_guidance_score
+        + 0.10 * adaptive_action_prior
         + 0.10 * float(warhead_retained)
         - 0.10 * float(introduced_warhead)
         - 0.08 * min(len(alerts), 3)
@@ -167,6 +183,8 @@ def assess_generator_candidate(parent_smiles: str, outcome: MutationOutcome) -> 
         fail_reasons.append("high_sa")
     if parent_similarity < 0.28:
         fail_reasons.append("low_parent_similarity")
+    if structural_guidance_score < 0.10 and parent_similarity < 0.40:
+        fail_reasons.append("low_structural_guidance")
     if lipinski_violations >= 3:
         fail_reasons.append("excessive_lipinski_violations")
     if mw > 700 or mw < 80:
@@ -187,6 +205,8 @@ def assess_generator_candidate(parent_smiles: str, outcome: MutationOutcome) -> 
         warhead_retained=warhead_retained,
         alert_count=len(alerts),
         severe_alert_count=len(severe_alerts),
+        structural_guidance_score=structural_guidance_score,
+        adaptive_action_prior=adaptive_action_prior,
     )
 
 
@@ -211,6 +231,8 @@ def apply_generator_policy(
             warhead_retained=assessment.warhead_retained,
             alert_count=assessment.alert_count,
             severe_alert_count=assessment.severe_alert_count,
+            structural_guidance_score=assessment.structural_guidance_score,
+            adaptive_action_prior=assessment.adaptive_action_prior,
         )
         if assessment.hard_constraint_pass:
             assessed.append(enriched)
@@ -225,6 +247,7 @@ def apply_generator_policy(
             float(item.medchem_realism_score),
             float(item.transformation_confidence),
             float(item.parent_similarity),
+            float(item.adaptive_action_prior),
         ),
         reverse=True,
     )

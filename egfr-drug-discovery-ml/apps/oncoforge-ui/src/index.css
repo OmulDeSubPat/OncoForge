@@ -1,0 +1,231 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --ui-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --ui-dur-fast: 180ms;
+  --ui-dur-med: 320ms;
+  --ui-dur-slow: 560ms;
+  font-family:
+    "Space Grotesk",
+    "Inter",
+    "Segoe UI",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(36, 214, 234, 0.2), transparent 30%),
+    radial-gradient(circle at top right, rgba(64, 217, 143, 0.12), transparent 28%),
+    linear-gradient(180deg, #020617 0%, #08111f 100%);
+  color: #edf8ff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(36, 214, 234, 0.16), transparent 24%),
+    radial-gradient(circle at top right, rgba(115, 166, 255, 0.11), transparent 22%),
+    radial-gradient(circle at bottom right, rgba(64, 217, 143, 0.09), transparent 24%),
+    linear-gradient(180deg, #020617 0%, #071120 100%);
+  color: #edf8ff;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: rgba(36, 214, 234, 0.3);
+  color: white;
+}
+
+@layer components {
+  .glass-panel {
+    @apply rounded-[28px] border border-white/8 bg-slate-950/78 shadow-soft backdrop-blur-xl;
+    position: relative;
+    isolation: isolate;
+    transition:
+      transform var(--ui-dur-med) var(--ui-ease),
+      border-color var(--ui-dur-med) var(--ui-ease),
+      box-shadow var(--ui-dur-med) var(--ui-ease),
+      background-color var(--ui-dur-med) var(--ui-ease);
+  }
+
+  .glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 26%),
+      radial-gradient(circle at top left, rgba(36, 214, 234, 0.08), transparent 38%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .glass-panel:hover {
+    border-color: rgba(138, 180, 248, 0.24);
+    box-shadow:
+      0 18px 60px rgba(2, 8, 23, 0.44),
+      0 0 0 1px rgba(36, 214, 234, 0.05);
+  }
+
+  .control-button {
+    @apply rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10 whitespace-normal text-center;
+    transition:
+      transform var(--ui-dur-fast) var(--ui-ease-soft),
+      border-color var(--ui-dur-fast) var(--ui-ease-soft),
+      background-color var(--ui-dur-fast) var(--ui-ease-soft),
+      box-shadow var(--ui-dur-fast) var(--ui-ease-soft);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .control-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: rgba(148, 163, 184, 0.24);
+  }
+
+  .control-button-primary {
+    @apply border-forge-cyan/40 bg-forge-cyan/15 text-white hover:bg-forge-cyan/25;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 12px 30px rgba(36, 214, 234, 0.12);
+  }
+
+  .field-card {
+    @apply flex flex-col gap-2 rounded-2xl border border-white/6 bg-slate-950/60 px-4 py-3 text-sm text-slate-200;
+  }
+
+  .field-card span {
+    @apply text-[11px] tracking-[0.14em] text-slate-400;
+  }
+
+  .field-card strong {
+    @apply text-lg font-semibold text-white;
+  }
+
+  .ui-kicker {
+    @apply text-[11px] tracking-[0.14em] text-slate-400;
+  }
+
+  .ui-note {
+    @apply text-sm leading-7 text-slate-300;
+  }
+
+  .section-enter {
+    animation: section-enter var(--ui-dur-slow) var(--ui-ease) both;
+  }
+
+  .chart-series-line {
+    animation: chart-draw 1.2s var(--ui-ease) both;
+    stroke-dasharray: 1600;
+    stroke-dashoffset: 1600;
+  }
+
+  .chart-point,
+  .chart-dot {
+    transform-origin: center;
+    animation: chart-pop 0.55s var(--ui-ease) both;
+    transition: transform var(--ui-dur-fast) var(--ui-ease-soft);
+  }
+
+  .chart-point:hover,
+  .chart-dot:hover {
+    transform: scale(1.18);
+  }
+
+  .chart-bar {
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    animation: chart-rise 0.7s var(--ui-ease) both;
+    transition: transform var(--ui-dur-fast) var(--ui-ease-soft), opacity var(--ui-dur-fast) var(--ui-ease-soft);
+  }
+
+  .chart-bar:hover {
+    transform: scaleY(1.03);
+  }
+}
+
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes chart-draw {
+  0% {
+    stroke-dashoffset: 1600;
+    opacity: 0.2;
+  }
+
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+@keyframes chart-rise {
+  from {
+    opacity: 0;
+    transform: scaleY(0.08);
+  }
+
+  to {
+    opacity: 0.92;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes chart-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes float-gentle {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -6px, 0);
+  }
+}
+
+.motion-safe\:animate-float-gentle {
+  animation: float-gentle 5.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  reproducibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify reproducibility artifacts
+        run: python -m src.pipelines.bootstrap_reproducibility --check-only
+
+      - name: Compile sources
+        run: python -m compileall src tests
+
+      - name: Run reproducibility tests
+        run: python -m unittest tests.test_reproducibility -v

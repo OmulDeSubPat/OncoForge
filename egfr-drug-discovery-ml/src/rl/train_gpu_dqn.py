@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - optional backend
     torch_directml = None
 
 from src.agents.evidence_arbiter import add_evidence_arbiter_ranking
+from src.agents.structure_evidence_arbiter import add_structure_evidence_arbiter
 from src.config import PROJECT_ROOT
 from src.evaluation.cross_database_validation import CrossDatabaseValidator
 from src.feasibility.assessor import FeasibilityAssessor
@@ -106,13 +107,16 @@ def _action_features(env: VerifiableMoleculeEnv, action: GroundedAction) -> np.n
         float(candidate.get("novelty_score", 0.0)),
         float(candidate.get("uncertainty", 0.0)),
         float(candidate.get("generator_priority_score", 0.0)),
+        float(candidate.get("adaptive_action_prior", 0.5)),
         float(candidate.get("parent_similarity", 0.0)),
         float(candidate.get("property_support_score", 0.0)),
+        float(candidate.get("structural_guidance_score", 0.0)),
         float(candidate.get("potency_support", 0.0)),
         float(candidate.get("chemistry_support", 0.0)),
         float(candidate.get("safety_support", 0.0)),
         float(candidate.get("domain_support", 0.0)),
         float(feasibility.get("feasibility_score", 0.0)),
+        float(bool(feasibility.get("feasibility_hard_gate_pass", False))),
         float(feasibility.get("synthetic_ease_score", 0.0)),
         float(feasibility.get("route_synthetic_support_score", 0.0)),
         float(feasibility.get("medchem_realism_score", 0.0)),
@@ -124,6 +128,7 @@ def _action_features(env: VerifiableMoleculeEnv, action: GroundedAction) -> np.n
         float(reward.get("reward_structural_support", 0.0)),
         float(reward.get("reward_interaction_support", 0.0)),
         float(reward.get("reward_generator_priority", 0.0)),
+        float(reward.get("reward_adaptive_action_prior", 0.0)),
         float(reward.get("reward_parent_similarity", 0.0)),
     ]
     vector.extend(_one_hot(str(action.action_category), ACTION_CATEGORY_ORDER))
@@ -185,6 +190,7 @@ class NeuralQAgent:
             [
                 float(action.reward_profile.get("reward_total", 0.0))
                 + 0.10 * float(action.candidate_profile.get("generator_priority_score", 0.0))
+                + 0.06 * float(action.candidate_profile.get("adaptive_action_prior", 0.5))
                 for action in actions
             ],
             dtype=float,
@@ -249,6 +255,9 @@ def _postprocess(terminal_df: pd.DataFrame, pose_dir, structural_top_k: int, ski
     for _, row in terminal_df.iterrows():
         feasibility = assessor.assess(
             str(row["smiles"]),
+            action_name=str(row["action_name"]) if "action_name" in row and pd.notna(row["action_name"]) else None,
+            action_rule_source=str(row["action_rule_source"]) if "action_rule_source" in row and pd.notna(row["action_rule_source"]) else None,
+            synthetic_route=str(row["synthetic_route"]) if "synthetic_route" in row and pd.notna(row["synthetic_route"]) else None,
             synthetic_feasibility_score=float(row["synthetic_feasibility_score"]) if "synthetic_feasibility_score" in row and pd.notna(row["synthetic_feasibility_score"]) else None,
             medchem_realism_score=float(row["medchem_realism_score"]) if "medchem_realism_score" in row and pd.notna(row["medchem_realism_score"]) else None,
             transformation_confidence=float(row["transformation_confidence_score"]) if "transformation_confidence_score" in row and pd.notna(row["transformation_confidence_score"]) else None,
@@ -264,6 +273,7 @@ def _postprocess(terminal_df: pd.DataFrame, pose_dir, structural_top_k: int, ski
     terminal_df = CrossDatabaseValidator().validate_frame(terminal_df)
     terminal_df = add_experimental_readiness(terminal_df, market_df=load_market_benchmark(), sort_output=False)
     terminal_df = add_evidence_arbiter_ranking(terminal_df)
+    terminal_df = add_structure_evidence_arbiter(terminal_df)
     terminal_df["gpu_rl_priority_score"] = (
         _series(terminal_df, "verified_reward", 0.0)
         + 0.80 * _series(terminal_df, "feasibility_score", 0.0)
@@ -273,9 +283,16 @@ def _postprocess(terminal_df: pd.DataFrame, pose_dir, structural_top_k: int, ski
         + 0.30 * _series(terminal_df, "external_evidence_support", 0.0)
         + 0.28 * _series(terminal_df, "experimental_readiness_score", 0.0)
         + 0.30 * _series(terminal_df, "evidence_arbiter_support", 0.0)
+        + 0.32 * _series(terminal_df, "structure_evidence_support", 0.0)
+        + 0.12 * _series(terminal_df, "structure_evidence_guardrail", 0.0)
+        + 0.16 * _series(terminal_df, "adaptive_action_prior", 0.5)
     )
     terminal_df["gpu_rl_arbiter_priority"] = terminal_df.get("evidence_arbiter_status", pd.Series("review", index=terminal_df.index)).map({"pass": 0, "review": 1, "fail": 2}).fillna(1).astype(int)
-    terminal_df = terminal_df.sort_values(["gpu_rl_arbiter_priority", "gpu_rl_priority_score", "predicted_pIC50"], ascending=[True, False, False]).reset_index(drop=True)
+    terminal_df["gpu_rl_structure_priority"] = terminal_df.get("structure_evidence_status", pd.Series("review", index=terminal_df.index)).map({"pass": 0, "review": 1, "fail": 2}).fillna(1).astype(int)
+    terminal_df = terminal_df.sort_values(
+        ["gpu_rl_structure_priority", "gpu_rl_arbiter_priority", "gpu_rl_priority_score", "predicted_pIC50"],
+        ascending=[True, True, False, False],
+    ).reset_index(drop=True)
     terminal_df["gpu_rl_rank"] = terminal_df.index + 1
     return terminal_df
 
@@ -304,6 +321,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cpu-only", action="store_true")
     parser.add_argument("--max-actions-per-family", type=int, default=3)
     parser.add_argument("--max-actions-total", type=int, default=24)
+    parser.add_argument("--structure-guidance-budget", type=int, default=36)
     args = parser.parse_args(argv)
 
     device, device_label = _resolve_device(prefer_gpu=not args.cpu_only)
@@ -314,6 +332,7 @@ def main(argv: list[str] | None = None) -> None:
         max_steps=args.max_steps,
         max_actions_per_family=args.max_actions_per_family,
         max_actions_total=args.max_actions_total,
+        structure_guidance_budget=args.structure_guidance_budget,
     )
     env.reset()
     sample_actions = env.available_actions()
@@ -377,20 +396,43 @@ def main(argv: list[str] | None = None) -> None:
         "episodes": int(args.episodes),
         "max_actions_per_family": int(args.max_actions_per_family),
         "max_actions_total": int(args.max_actions_total),
+        "structure_guidance_budget": int(args.structure_guidance_budget),
         "best_episode_return": float(episode_df["episode_return"].max()) if not episode_df.empty else 0.0,
         "mean_episode_return": float(episode_df["episode_return"].mean()) if not episode_df.empty else 0.0,
         "mean_generator_priority_score": float(terminal_df["generator_priority_score"].mean()) if "generator_priority_score" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_parent_similarity": float(terminal_df["parent_similarity"].mean()) if "parent_similarity" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_adaptive_action_prior": float(terminal_df["adaptive_action_prior"].mean()) if "adaptive_action_prior" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_cross_database_consensus": float(terminal_df["cross_database_consensus_score"].mean()) if "cross_database_consensus_score" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_external_evidence_support": float(terminal_df["external_evidence_support"].mean()) if "external_evidence_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_experimental_readiness_score": float(terminal_df["experimental_readiness_score"].mean()) if "experimental_readiness_score" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "ready_rate": float((terminal_df["experimental_readiness_status"] == "ready").mean()) if "experimental_readiness_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "mean_evidence_arbiter_support": float(terminal_df["evidence_arbiter_support"].mean()) if "evidence_arbiter_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_structure_evidence_support": float(terminal_df["structure_evidence_support"].mean()) if "structure_evidence_support" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "mean_structure_evidence_guardrail": float(terminal_df["structure_evidence_guardrail"].mean()) if "structure_evidence_guardrail" in terminal_df.columns and not terminal_df.empty else 0.0,
         "arbiter_pass_rate": float((terminal_df["evidence_arbiter_status"] == "pass").mean()) if "evidence_arbiter_status" in terminal_df.columns and not terminal_df.empty else 0.0,
+        "structure_evidence_pass_rate": float((terminal_df["structure_evidence_status"] == "pass").mean()) if "structure_evidence_status" in terminal_df.columns and not terminal_df.empty else 0.0,
         "top_candidate": terminal_df.head(1).to_dict(orient="records"),
     }
     (rl_dir / "gpu_rl_training_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"[OK] Saved GPU RL artifacts to: {rl_dir}")
     if not terminal_df.empty:
-        print(terminal_df[["smiles", "predicted_pIC50", "feasibility_score", "cross_database_consensus_score", "external_evidence_support", "evidence_arbiter_support", "gpu_rl_priority_score"]].head(20).to_string(index=False))
+        print(
+            terminal_df[
+                [
+                    "smiles",
+                    "predicted_pIC50",
+                    "feasibility_score",
+                    "cross_database_consensus_score",
+                    "external_evidence_support",
+                    "evidence_arbiter_support",
+                    "structure_evidence_support",
+                    "adaptive_action_prior",
+                    "gpu_rl_priority_score",
+                ]
+            ]
+            .head(20)
+            .to_string(index=False)
+        )
 
 
 if __name__ == "__main__":

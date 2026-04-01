@@ -12,11 +12,13 @@ class VerifiableRewardWeights:
     feasibility_score: float = 0.80
     feasibility_pass_bonus: float = 0.25
     feasibility_fail_penalty: float = 0.60
+    feasibility_hard_gate_fail_penalty: float = 0.80
     structural_support_bonus: float = 0.20
     interaction_support_bonus: float = 0.25
     medchem_realism_bonus: float = 0.18
     synthetic_route_bonus: float = 0.16
     generator_priority_bonus: float = 0.18
+    adaptive_action_prior_bonus: float = 0.14
     parent_similarity_bonus: float = 0.14
     scaffold_preservation_bonus: float = 0.10
     audit_pass_bonus: float = 0.20
@@ -40,11 +42,13 @@ def compute_verifiable_reward(
 
     feasibility_score = float(feasibility_profile["feasibility_score"])
     feasibility_status = str(feasibility_profile["feasibility_status"])
+    feasibility_hard_gate_pass = bool(feasibility_profile.get("feasibility_hard_gate_pass", True))
     structural_support_score = float(feasibility_profile.get("structural_support_score", 0.0))
     interaction_support_score = float(feasibility_profile.get("interaction_support_score", 0.0))
     medchem_realism_score = float(feasibility_profile.get("medchem_realism_score", 0.0))
     synthetic_route_score = float(feasibility_profile.get("route_synthetic_support_score", 0.0))
     generator_priority_score = float(candidate_profile.get("generator_priority_score", 0.0))
+    adaptive_action_prior = float(candidate_profile.get("adaptive_action_prior", 0.50))
     parent_similarity = float(candidate_profile.get("parent_similarity", feasibility_profile.get("parent_similarity", 0.0)) or 0.0)
     preserves_scaffold = bool(candidate_profile.get("preserves_scaffold", True))
     audit_status = str(candidate_profile["audit_status"])
@@ -62,9 +66,11 @@ def compute_verifiable_reward(
         + active.medchem_realism_bonus * medchem_realism_score
         + active.synthetic_route_bonus * synthetic_route_score
         + active.generator_priority_bonus * generator_priority_score
+        + active.adaptive_action_prior_bonus * adaptive_action_prior
         + active.parent_similarity_bonus * parent_similarity
         + active.scaffold_preservation_bonus * float(preserves_scaffold)
         - active.feasibility_fail_penalty * float(feasibility_status == "fail")
+        - active.feasibility_hard_gate_fail_penalty * float(not feasibility_hard_gate_pass)
         + active.audit_pass_bonus * float(audit_status == "pass")
         - active.audit_review_penalty * float(audit_status == "review")
         - active.audit_fail_penalty * float(audit_status == "fail")
@@ -86,7 +92,9 @@ def compute_verifiable_reward(
         "reward_medchem_realism": medchem_realism_score,
         "reward_synthetic_route": synthetic_route_score,
         "reward_generator_priority": generator_priority_score,
+        "reward_adaptive_action_prior": adaptive_action_prior,
         "reward_parent_similarity": parent_similarity,
+        "reward_feasibility_hard_gate": float(-active.feasibility_hard_gate_fail_penalty * float(not feasibility_hard_gate_pass)),
         "reward_hacking_penalty": float(-active.reward_hacking_penalty * hacking_risk),
         "reward_veto_penalty": float(-active.veto_penalty * float(veto)),
         "reward_audit_status": audit_status,

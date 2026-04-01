@@ -1,0 +1,4 @@
+Titlu proiect: OncoForge - Platforma AI pentru prioritizarea moleculelor EGFR
+Autori: [Completeaza numele autorilor]
+Coordonator: [Completeaza profesorul coordonator]
+Competitie: [Completeaza sectiunea / anul]
